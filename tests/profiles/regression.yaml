@@ -1,0 +1,13 @@
+name: "Regression — Existing Pipelines (Profile 6)"
+files:
+  - test-transaction-reports/Wealthsimple_Test_Transactions.csv
+  - test-transaction-reports/Questrade_Test_Transactions.xlsx
+expected:
+  total_transactions: 81    # 35 + 46
+  brokers: [wealthsimple, questrade]
+  currencies_at_least: [CAD, USD]
+  no_regressions: true
+  # Re-importing the same files must produce 0 new / 81 skipped — the
+  # core dedup contract documented in v0.2.0.
+  reimport_inserted: 0
+  reimport_skipped: 81

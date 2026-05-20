@@ -1,0 +1,9 @@
+name: "Marcus Webb — Active Trader"
+files:
+  - test-transaction-reports/InteractiveBrokers_2024.csv
+  - test-transaction-reports/Questrade_Test_Transactions.xlsx
+expected:
+  total_transactions_min: 90   # spec says 110+ but with real fixture sizes
+  brokers: [interactive, questrade]
+  currencies_at_least: [CAD, USD, GBP, EUR, JPY, AUD]
+  has_normalized_quantities: true   # IB signed qty must come out positive

@@ -1,0 +1,10 @@
+name: "Sarah Chen — Canadian Retail"
+files:
+  - test-transaction-reports/RBC_DirectInvesting_2024.csv
+  - test-transaction-reports/TD_DirectInvesting_2024.csv
+  - test-transaction-reports/BMO_InvestorLine_2024.xlsx
+expected:
+  total_transactions: 125   # 42 + 45 + 38
+  brokers: [rbc, td, bmo]
+  currencies_at_least: [CAD, USD, GBP, EUR, JPY, AUD]
+  account_types_at_least: [RRSP, TFSA, Margin, RESP, RRIF, Non-Registered]

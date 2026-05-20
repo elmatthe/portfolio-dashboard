@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Active profile color, swapped at runtime by ProfileContext. */
+    --accent-rgb: 59 130 246;
+    /* Light palette is the default; the .dark class on <html> overrides. */
+    --bg-rgb: 248 250 252;             /* #F8FAFC */
+    --surface-rgb: 255 255 255;        /* #FFFFFF */
+    --border-rgb: 15 23 42;            /* used with alpha → rgba(0,0,0,0.08) */
+    --border-alpha: 0.08;
+    --text-primary-rgb: 15 23 42;      /* #0F172A */
+    --text-muted-rgb: 100 116 139;     /* #64748B */
+  }
+  .dark {
+    --bg-rgb: 10 15 30;                /* #0A0F1E */
+    --surface-rgb: 17 24 39;           /* #111827 */
+    --border-rgb: 255 255 255;         /* tinted with alpha → rgba(255,255,255,0.07) */
+    --border-alpha: 0.07;
+    --text-primary-rgb: 249 250 251;   /* #F9FAFB */
+    --text-muted-rgb: 107 114 128;     /* #6B7280 */
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    font-family: "Inter", system-ui, sans-serif;
+    background: rgb(var(--bg-rgb));
+    color: rgb(var(--text-primary-rgb));
+    -webkit-font-smoothing: antialiased;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: rgb(var(--bg-rgb));
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--border-rgb) / 0.3);
+    border-radius: 5px;
+  }
+}
+
+@layer components {
+  .card {
+    border-radius: 0.75rem;
+    background: rgb(var(--surface-rgb));
+    border: 1px solid rgb(var(--border-rgb) / var(--border-alpha));
+    padding: 1.25rem;
+  }
+  .num {
+    font-family: "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .label-muted {
+    @apply text-text-muted text-xs uppercase tracking-wider;
+  }
+  .btn {
+    @apply inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-white hover:opacity-90;
+  }
+  .btn-ghost {
+    background: rgb(var(--border-rgb) / 0.06);
+    color: rgb(var(--text-primary-rgb));
+    @apply btn;
+  }
+  .btn-ghost:hover {
+    background: rgb(var(--border-rgb) / 0.12);
+  }
+  .badge {
+    @apply inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium;
+  }
+}

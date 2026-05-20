@@ -1,0 +1,23 @@
+{
+  "name": "portfolio-dashboard",
+  "productName": "Portfolio Dashboard",
+  "version": "0.3.0",
+  "description": "Local-first multi-broker portfolio tracker — 11 brokers, 10 currencies",
+  "main": "main.js",
+  "author": "You <you@example.com>",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "NODE_ENV=development electron .",
+    "pack": "electron-builder --config electron-builder.yml",
+    "pack:mac": "electron-builder --mac --config electron-builder.yml",
+    "pack:win": "electron-builder --win --config electron-builder.yml"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.0"
+  },
+  "dependencies": {
+    "electron-window-state": "^5.0.3"
+  }
+}

@@ -1,0 +1,10 @@
+name: "James O'Brien — International"
+files:
+  - test-transaction-reports/RBC_DirectInvesting_2024.pdf
+  - test-transaction-reports/TD_DirectInvesting_2024.pdf
+  - test-transaction-reports/HSBC_InvestDirect_2024.xlsx
+expected:
+  total_transactions: 108   # 40 + 35 + 33
+  brokers: [rbc, td, hsbc]
+  currencies_at_least: [CAD, USD, GBP, EUR, JPY, AUD]
+  has_isin: true            # HSBC rows carry ISIN

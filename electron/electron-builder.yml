@@ -1,0 +1,45 @@
+appId: com.yourname.portfoliodashboard
+productName: Portfolio Dashboard
+directories:
+  output: ../release
+  buildResources: ../assets
+files:
+  - main.js
+  - preload.js
+  - package.json
+extraResources:
+  # The PyInstaller backend goes to resources/backend/backend.exe
+  - from: ../backend-dist/
+    to: backend/
+    filter: ["**/*"]
+  # The Vite-built frontend goes to resources/dist/. main.js loads index.html
+  # from there in production (via process.resourcesPath).
+  - from: ../dist/
+    to: dist/
+    filter: ["**/*"]
+mac:
+  category: public.app-category.finance
+  icon: ../assets/icon.icns
+  target:
+    - target: dmg
+      arch: [universal]
+    - target: zip
+      arch: [universal]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+win:
+  icon: ../assets/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  category: Office

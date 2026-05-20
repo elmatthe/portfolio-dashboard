@@ -1,0 +1,10 @@
+name: "Alex Rivera — US Investor"
+files:
+  - test-transaction-reports/Fidelity_2024.csv
+  - test-transaction-reports/InteractiveBrokers_2024.csv
+expected:
+  total_transactions: 90    # 40 + 50
+  brokers: [fidelity, interactive]
+  currencies_at_least: [USD, CAD]
+  zero_commission_transactions_min: 40   # Fidelity rows are all zero-commission
+  account_types_at_least: [Individual, "Roth IRA", "Traditional IRA"]

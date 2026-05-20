@@ -1,0 +1,11 @@
+name: "Priya Sharma — Multi-Bank"
+files:
+  - test-transaction-reports/CIBC_InvestorsEdge_2024.csv
+  - test-transaction-reports/BMO_InvestorLine_2024.csv
+  - test-transaction-reports/Scotia_iTRADE_2024.csv
+  - test-transaction-reports/NationalBank_DirectBrokerage_2024.csv
+expected:
+  total_transactions: 149   # 38 + 36 + 40 + 35
+  brokers: [cibc, bmo, scotiabank, nationalbank]
+  currencies_at_least: [CAD, USD, GBP, EUR, JPY, AUD]
+  date_formats_mixed: true   # Scotia uses DD/MM/YYYY
