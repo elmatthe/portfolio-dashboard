@@ -347,8 +347,8 @@ export default function SettingsPage({ onClose }: Props) {
 
 function Overlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 bg-bg overflow-y-auto" onClick={onClose}>
-      <div className="min-h-full" onClick={(e) => e.stopPropagation()}>{children}</div>
+    <div className="fixed inset-0 z-50 bg-bg overflow-y-auto overscroll-contain" onClick={onClose}>
+      <div className="min-h-full pb-12" onClick={(e) => e.stopPropagation()}>{children}</div>
     </div>
   );
 }

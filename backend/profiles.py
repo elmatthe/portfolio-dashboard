@@ -22,6 +22,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from backend._time import utcnow_naive as _now
+
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +111,7 @@ def _create_default_profile_file() -> ProfilesFile:
             Profile(
                 id=pid,
                 name=DEFAULT_PROFILE_NAME,
-                created_at=datetime.utcnow(),
+                created_at=_now(),
                 color=DEFAULT_PROFILE_COLOR,
             )
         ],
@@ -125,7 +127,7 @@ def create_profile(name: str, color: str = DEFAULT_PROFILE_COLOR) -> Profile:
     new = Profile(
         id=uuid.uuid4().hex[:8],
         name=name,
-        created_at=datetime.utcnow(),
+        created_at=_now(),
         color=color or DEFAULT_PROFILE_COLOR,
     )
     state.profiles.append(new)
@@ -198,7 +200,7 @@ def mark_profile_imported(profile_id: str) -> None:
     p = _find_profile(state, profile_id)
     if p is None:
         return
-    p.last_imported_at = datetime.utcnow()
+    p.last_imported_at = _now()
     save_profiles(state)
 
 

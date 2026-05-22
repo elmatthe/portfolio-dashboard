@@ -3,17 +3,45 @@
 // the BrowserWindow loading the bundled React frontend. A small splash window
 // shows immediately so the user sees activity during the 1-3s backend startup.
 // On quit, SIGTERMs the backend and waits for it to exit cleanly.
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, session } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
+const net = require("node:net");
 const { spawn } = require("node:child_process");
 const http = require("node:http");
 const windowStateKeeper = require("electron-window-state");
 
-const BACKEND_PORT = 7842;
-const HEALTH_URL = `http://127.0.0.1:${BACKEND_PORT}/health`;
+const PREFERRED_BACKEND_PORT = 7842;
+// Backend port is resolved at startup via `findFreePort` — if 7842 is busy
+// (another instance, dev server, etc.) we fall back to an OS-assigned port
+// and pass it to the backend via the PORTFOLIO_PORT env var.
+let BACKEND_PORT = PREFERRED_BACKEND_PORT;
 const HEALTH_TIMEOUT_MS = 30_000;
 const HEALTH_POLL_MS = 200;
+
+function healthUrl() {
+  return `http://127.0.0.1:${BACKEND_PORT}/health`;
+}
+
+function findFreePort(preferred) {
+  // Try the preferred port first; if it's in use, ask the OS for any free one.
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.unref();
+    server.on("error", () => {
+      const fallback = net.createServer();
+      fallback.unref();
+      fallback.listen(0, "127.0.0.1", () => {
+        const addr = fallback.address();
+        const port = addr && typeof addr === "object" ? addr.port : preferred;
+        fallback.close(() => resolve(port));
+      });
+    });
+    server.listen(preferred, "127.0.0.1", () => {
+      server.close(() => resolve(preferred));
+    });
+  });
+}
 
 let backendProcess = null;
 let mainWindow = null;
@@ -64,6 +92,7 @@ function startBackend() {
   const env = {
     ...process.env,
     PORTFOLIO_PROFILES_DIR: userData,
+    PORTFOLIO_PORT: String(BACKEND_PORT),
     // PyInstaller-bundled stdio doesn't flush by default; force unbuffered so
     // stderr lines reach us promptly before a crash.
     PYTHONUNBUFFERED: "1",
@@ -147,7 +176,7 @@ function waitForBackend() {
   return new Promise((resolve, reject) => {
     const deadline = Date.now() + HEALTH_TIMEOUT_MS;
     const tryOnce = () => {
-      const req = http.get(HEALTH_URL, (res) => {
+      const req = http.get(healthUrl(), (res) => {
         res.resume();
         if (res.statusCode === 200) return resolve();
         retry();
@@ -245,14 +274,57 @@ async function createWindow() {
     mainWindow.show();
   });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    // Only forward http(s) URLs to the user's default browser. Refuse anything
+    // else (file://, custom schemes, javascript:, data:) so a malicious / typo
+    // URL from the renderer can't be passed to `shell.openExternal`.
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+        shell.openExternal(url);
+      } else {
+        console.warn(`[electron] Refusing to openExternal for non-http(s) URL: ${url}`);
+      }
+    } catch (e) {
+      console.warn(`[electron] Invalid URL passed to openExternal: ${url}`);
+    }
     return { action: "deny" };
+  });
+}
+
+function installCsp() {
+  // Attach a Content-Security-Policy header to every response served to the
+  // renderer. In production the renderer loads `index.html` from file://, so
+  // its only "network" peer is the local backend on 127.0.0.1:<BACKEND_PORT>.
+  // Tightening the CSP closes the door on a hypothetical compromised page
+  // making outbound network calls. 'unsafe-inline' is needed for Vite's
+  // injected styles + Tailwind utilities.
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const csp = [
+      "default-src 'self'",
+      "script-src 'self'",
+      `connect-src 'self' http://127.0.0.1:${BACKEND_PORT} ws://127.0.0.1:${BACKEND_PORT}`,
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:",
+      "font-src 'self' data:",
+      "object-src 'none'",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+    ].join("; ");
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        "Content-Security-Policy": [csp],
+      },
+    });
   });
 }
 
 app.whenReady().then(async () => {
   try {
     createSplash();
+    BACKEND_PORT = await findFreePort(PREFERRED_BACKEND_PORT);
+    console.log(`[electron] Backend port resolved to ${BACKEND_PORT}`);
+    installCsp();
     startBackend();
     await waitForBackend();
     await createWindow();
@@ -275,19 +347,57 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => {
+// Track whether the graceful shutdown handshake has already finished so the
+// before-quit handler doesn't re-enter the async flow on every quit attempt.
+let shutdownInitiated = false;
+
+app.on("before-quit", (event) => {
   intentionalQuit = true;
-  if (backendProcess) {
-    try {
-      // On Windows SIGTERM isn't deliverable; use the platform-appropriate kill.
-      if (process.platform === "win32") {
-        backendProcess.kill();
-      } else {
-        backendProcess.kill("SIGTERM");
+  if (!backendProcess || shutdownInitiated) return;
+  shutdownInitiated = true;
+  event.preventDefault();
+
+  // Step 1: ask FastAPI to checkpoint the SQLite WAL and stop itself. This is
+  // critical on Windows where the raw kill() below is TerminateProcess — without
+  // a graceful path the WAL accumulates uncheckpointed pages (we observed
+  // 4.5 MB -wal files in the wild before this fix).
+  const SHUTDOWN_URL = `http://127.0.0.1:${BACKEND_PORT}/api/shutdown`;
+  // (Uses BACKEND_PORT resolved at app start — could be 7842 or an OS-assigned fallback.)
+  const HANDSHAKE_TIMEOUT_MS = 4_000;
+
+  const finishQuit = () => {
+    if (backendProcess) {
+      try {
+        if (process.platform === "win32") {
+          backendProcess.kill();
+        } else {
+          backendProcess.kill("SIGTERM");
+        }
+      } catch (e) {
+        console.warn("[electron] kill failed:", e);
       }
-    } catch (e) {
-      console.warn("[electron] kill failed:", e);
     }
+    app.quit();
+  };
+
+  try {
+    const req = http.request(
+      SHUTDOWN_URL,
+      { method: "POST", timeout: HANDSHAKE_TIMEOUT_MS },
+      (res) => {
+        res.resume();
+        res.on("end", finishQuit);
+      },
+    );
+    req.on("error", finishQuit);
+    req.on("timeout", () => {
+      req.destroy();
+      finishQuit();
+    });
+    req.end();
+  } catch (e) {
+    console.warn("[electron] shutdown handshake threw:", e);
+    finishQuit();
   }
 });
 
@@ -304,3 +414,5 @@ ipcMain.handle("save-xlsx", async (_evt, suggestedName) => {
 });
 
 ipcMain.handle("get-version", () => app.getVersion());
+
+ipcMain.handle("get-backend-port", () => BACKEND_PORT);

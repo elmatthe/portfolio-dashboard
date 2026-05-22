@@ -89,9 +89,11 @@ def compute(
     transactions
         All normalized transactions across all accounts.
     fx_rate_for_date
-        Optional `lambda (d, pair) -> rate` used to translate realized gains to CAD
-        for tax reporting. `pair` is "USDCAD" or "CADUSD". If not provided, gains
-        in USD are reported in USD (caller is responsible for conversion).
+        Optional callable `(trade_date, currency) -> rate_to_cad` used to
+        translate realized gains to CAD for tax reporting. When omitted, the
+        process-wide `FXService` singleton is used. The CAD-converted figures
+        populate `RealizedGain.total_gain_cad` and the `*_cad` totals on the
+        report — these are the authoritative numbers for CRA reporting.
     security_names
         Optional ticker → display-name map for nicer reports.
 
@@ -101,6 +103,11 @@ def compute(
         holdings_by_key: (resolved_ticker, account_type) → AcbHolding
         report: aggregated CapitalGainsReport
     """
+    if fx_rate_for_date is None:
+        from backend.fx import get_fx_service
+        _fx = get_fx_service()
+        def fx_rate_for_date(d: date, currency: str) -> float:
+            return _fx.rate_to_cad(currency, d)
     txs = sorted(_filter_relevant(transactions), key=_chronological_key)
     ledgers: dict[tuple[str, AccountType], _AcbLedger] = {}
 
@@ -180,10 +187,15 @@ def compute(
         for entry in ledger.realized:
             if entry.gross_gain >= 0:
                 continue
+            # CRA's 30-day superficial-loss window is inclusive of the sale date
+            # itself — a same-day repurchase triggers denial. Previous behaviour
+            # excluded `d == entry.transaction_date`, which under-reported the
+            # adjustment for any user who sold-at-a-loss and re-bought the same
+            # day (a classic tax-loss-harvesting mistake the engine should catch).
             window_start = entry.transaction_date - timedelta(days=30)
             window_end = entry.transaction_date + timedelta(days=30)
             qualifying_buys = [
-                (d, q) for d, q in all_buys if window_start <= d <= window_end and d != entry.transaction_date
+                (d, q) for d, q in all_buys if window_start <= d <= window_end
             ]
             if not qualifying_buys:
                 continue
@@ -220,6 +232,10 @@ def compute(
             sloss_for_this = sum(
                 a.denied_loss for a in ledger.sloss_adjustments if a.transaction_date == e.transaction_date
             )
+            # CAD-equivalent values at the transaction-date FX rate. CAD positions
+            # always get rate 1.0; non-CAD positions go through the FX callable
+            # (defaults to FXService).
+            fx = fx_rate_for_date(e.transaction_date, e.currency) if e.currency != "CAD" else 1.0
             realized_models.append(
                 RealizedGain(
                     transaction_date=e.transaction_date,
@@ -231,6 +247,8 @@ def compute(
                     acb_per_share=e.acb_per_share_at_sale,
                     gain_per_share=(e.sale_price - e.acb_per_share_at_sale),
                     total_gain=e.gross_gain,
+                    total_gain_cad=round(e.gross_gain * fx, 2),
+                    fx_rate_to_cad=fx,
                     commission=e.commission,
                     currency=e.currency,
                     taxable=taxable,
@@ -265,15 +283,30 @@ def compute(
 
     total_taxable = sum(g.total_gain for g in all_gains if g.taxable)
     total_non_taxable = sum(g.total_gain for g in all_gains if not g.taxable)
+    total_taxable_cad = sum((g.total_gain_cad or 0.0) for g in all_gains if g.taxable)
+    total_non_taxable_cad = sum((g.total_gain_cad or 0.0) for g in all_gains if not g.taxable)
     total_sloss = sum(
         a.denied_loss for h in holdings.values() for a in h.superficial_loss_adjustments
     )
+    # Superficial-loss CAD: each adjustment's currency follows the ledger that
+    # produced it. Re-lookup the rate for the date.
+    total_sloss_cad = 0.0
+    for h in holdings.values():
+        ccy = h.currency
+        fx = fx_rate_for_date(date.today(), ccy) if ccy != "CAD" else 1.0
+        for a in h.superficial_loss_adjustments:
+            # Use the adjustment's transaction date if available.
+            this_fx = fx_rate_for_date(a.transaction_date, ccy) if ccy != "CAD" else 1.0
+            total_sloss_cad += a.denied_loss * this_fx
 
     report = CapitalGainsReport(
         realized_gains=sorted(all_gains, key=lambda g: g.transaction_date),
         total_taxable_gain=round(total_taxable, 2),
         total_non_taxable_gain=round(total_non_taxable, 2),
+        total_taxable_gain_cad=round(total_taxable_cad, 2),
+        total_non_taxable_gain_cad=round(total_non_taxable_cad, 2),
         total_superficial_loss_denied=round(total_sloss, 2),
+        total_superficial_loss_denied_cad=round(total_sloss_cad, 2),
     )
 
     return holdings, report

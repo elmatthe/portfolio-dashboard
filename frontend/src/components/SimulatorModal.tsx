@@ -51,8 +51,12 @@ export default function SimulatorModal({ holdings, onClose }: Props) {
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div className="card w-[34rem] max-w-[92vw] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 bg-black/60 overflow-y-auto" onClick={onClose}>
+      <div className="min-h-full flex items-center justify-center px-4 py-[60px]">
+        <div
+          className="card w-[34rem] max-w-[92vw] max-h-[calc(100vh-120px)] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold inline-flex items-center gap-2">
             <FlaskConical size={18} /> What-If Simulator
@@ -181,6 +185,7 @@ export default function SimulatorModal({ holdings, onClose }: Props) {
             )}
           </div>
         )}
+        </div>
       </div>
     </div>
   );

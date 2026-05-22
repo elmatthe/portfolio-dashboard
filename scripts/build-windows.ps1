@@ -54,6 +54,7 @@ py -m PyInstaller backend\main.py `
   --hidden-import uvicorn.protocols.websockets.auto `
   --hidden-import uvicorn.lifespan `
   --hidden-import uvicorn.lifespan.on `
+  --collect-submodules backend.parsers `
   --collect-all yfinance `
   --collect-all pandas `
   --collect-all openpyxl `

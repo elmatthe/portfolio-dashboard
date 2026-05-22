@@ -13,6 +13,7 @@ from typing import Iterable
 from sqlalchemy import delete, insert, select, update
 
 from backend import db, market_data
+from backend._time import utcnow_naive as _now
 from backend.models import PriceAlert, PriceAlertCreate
 
 
@@ -48,7 +49,7 @@ def list_alerts(include_dismissed: bool = False) -> list[PriceAlert]:
 def create_alert(req: PriceAlertCreate) -> PriceAlert:
     """Persist a new price alert. Returns the saved row with its assigned id."""
     engine = db.get_engine()
-    now = datetime.utcnow()
+    now = _now()
     with engine.begin() as conn:
         result = conn.execute(
             insert(db.price_alerts).values(
@@ -109,7 +110,7 @@ def evaluate_alerts() -> list[PriceAlert]:
         rows = conn.execute(stmt).mappings().all()
 
     newly_triggered: list[PriceAlert] = []
-    now = datetime.utcnow()
+    now = _now()
     for r in rows:
         q = market_data.get_quote(r["ticker"], max_age_minutes=24 * 60)
         if q.price is None:

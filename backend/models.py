@@ -146,7 +146,12 @@ class ImportStatus(BaseModel):
 # ---------- ACB / Capital gains ----------
 
 class RealizedGain(BaseModel):
-    """A single sell event with the gain it produced."""
+    """A single sell event with the gain it produced.
+
+    `total_gain` is in the security's native currency. `total_gain_cad` is the
+    CAD-equivalent at the transaction date FX rate — use the CAD field for any
+    aggregation across the report.
+    """
 
     transaction_date: date
     ticker: str
@@ -157,6 +162,8 @@ class RealizedGain(BaseModel):
     acb_per_share: float
     gain_per_share: float
     total_gain: float
+    total_gain_cad: float | None = None
+    fx_rate_to_cad: float | None = None
     commission: float = 0.0
     currency: Currency = "CAD"
     taxable: bool = True
@@ -195,10 +202,19 @@ class AcbHolding(BaseModel):
 
 
 class CapitalGainsReport(BaseModel):
+    """Capital gains aggregate. The CAD-suffixed fields are the authoritative
+    figures for CRA reporting — they correctly sum across native currencies via
+    each transaction's FX rate. The unsuffixed `total_*` fields sum raw native
+    amounts and are kept for backward compatibility only; do not present them
+    in any tax-facing UI."""
+
     realized_gains: list[RealizedGain]
     total_taxable_gain: float
     total_non_taxable_gain: float  # TFSA + RRSP
+    total_taxable_gain_cad: float = 0.0
+    total_non_taxable_gain_cad: float = 0.0
     total_superficial_loss_denied: float = 0.0
+    total_superficial_loss_denied_cad: float = 0.0
 
 
 # ---------- Holdings (display layer) ----------

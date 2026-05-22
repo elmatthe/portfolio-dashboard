@@ -16,6 +16,7 @@ import logging
 from pathlib import Path
 from typing import Type
 
+from backend.fx import get_fx_service
 from backend.models import Transaction
 from backend.parsers.base import BaseParser, ParserResult
 from backend.parsers._common import read_text_sample
@@ -111,11 +112,32 @@ def detect_broker(file_path: str | Path) -> tuple[str, float]:
 
 
 def parse_with_registry(file_path: str | Path) -> ParserResult:
-    """Auto-detect and parse. Returns ParserResult(transactions, broker_key, fmt, confidence)."""
+    """Auto-detect and parse. Returns ParserResult(transactions, broker_key, fmt, confidence).
+
+    After parsing, fills `fx_rate_to_cad` and `net_cad` on any transaction whose
+    parser left them blank (Questrade/Wealthsimple legacy parsers don't carry
+    in-file FX columns, so they always defer to FXService). `populate_transaction`
+    is idempotent — it only sets fields still set to None.
+    """
     _populate_registry()
     broker_key, confidence = detect_broker(file_path)
-    parser_cls = BROKER_PARSERS.get(broker_key) or BROKER_PARSERS["generic"]
+    parser_cls = BROKER_PARSERS.get(broker_key)
+    if parser_cls is None:
+        # Fail-fast if even the generic fallback isn't registered (PyInstaller
+        # hiddenimports gap). Raising here is friendlier than a KeyError mid-import.
+        if "generic" not in BROKER_PARSERS:
+            raise RuntimeError(
+                "Parser registry missing the generic fallback. "
+                f"Registered: {sorted(BROKER_PARSERS.keys())}. "
+                "Check backend.spec hiddenimports if running a PyInstaller build."
+            )
+        parser_cls = BROKER_PARSERS["generic"]
     txs = parser_cls().parse(file_path)
+
+    fx = get_fx_service()
+    for t in txs:
+        fx.populate_transaction(t)
+
     fmt = Path(file_path).suffix.lower().lstrip(".") or "unknown"
     logger.info(
         "Detected %s (%s) at confidence %.2f — parsed %d transactions",

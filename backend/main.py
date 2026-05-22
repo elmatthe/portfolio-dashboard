@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from backend import alerts, annual_report, db, excel_export, market_data, portfolio, profiles, rebalance, simulator, store, tax_report, tfsa
+from backend._time import utcnow_naive as _now
 from backend.models import (
     AppSettings,
     AttributionReport,
@@ -66,10 +67,15 @@ async def lifespan(app: FastAPI):
         logger.warning("Profile init failed, falling back to legacy DB path: %s", e)
     db.get_engine()  # ensure tables exist
     logger.info("DB ready at %s", db.resolve_db_path())
+    # Surface bundled-vs-source parity: log every parser the registry sees.
+    # If this list is shorter than 12 in a PyInstaller bundle, hiddenimports
+    # are missing and imports will fall back to "generic" → KeyError.
+    from backend.parsers import BROKER_PARSERS
+    logger.info("Parsers registered (%d): %s", len(BROKER_PARSERS), sorted(BROKER_PARSERS.keys()))
     yield
 
 
-app = FastAPI(title="Portfolio Dashboard", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="Portfolio Dashboard", version="0.5.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -85,13 +91,29 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def _add_utf8_charset(request, call_next):
+    """Stamp `charset=utf-8` on every JSON response.
+
+    Without an explicit charset, some downstream consumers (Excel / certain
+    PDF readers / older Windows clipboard sinks) interpret bytes as cp1252,
+    which mojibakes the em-dashes, arrows, and Unicode symbols the simulator
+    and rebalancer responses use ("→", "·", "×").
+    """
+    response = await call_next(request)
+    ct = response.headers.get("content-type", "")
+    if ct.startswith("application/json") and "charset" not in ct.lower():
+        response.headers["content-type"] = "application/json; charset=utf-8"
+    return response
+
+
 @app.exception_handler(Exception)
 async def _global_error(request, exc: Exception):
     """Catch-all error handler that returns a structured JSON envelope instead of an HTML 500 page."""
     logger.exception("Unhandled: %s", exc)
     return JSONResponse(
         status_code=500,
-        content={"error": exc.__class__.__name__, "detail": str(exc), "timestamp": datetime.utcnow().isoformat()},
+        content={"error": exc.__class__.__name__, "detail": str(exc), "timestamp": _now().isoformat()},
     )
 
 
@@ -191,7 +213,7 @@ async def import_file(file: UploadFile = File(...)) -> ImportResult:
 
         # Record import metadata
         store.set_state("last_import_filename", file.filename or "upload")
-        store.set_state("last_import_at", datetime.utcnow().isoformat())
+        store.set_state("last_import_at", _now().isoformat())
         # Stamp the active profile so the switcher can show "last import" dates.
         try:
             active = profiles.get_active_profile()
@@ -231,9 +253,33 @@ def get_holdings(account: str | None = None, period: str | None = None) -> list[
 
 
 @app.get("/api/capital-gains", response_model=CapitalGainsReport)
-def get_capital_gains(account: str | None = None, period: str | None = None) -> CapitalGainsReport:
-    """Realized capital gains/losses for the active profile (or a single account)."""
-    return portfolio.build_portfolio(account=account, period=period).capital_gains
+def get_capital_gains(
+    account: str | None = None,
+    period: str | None = None,
+    year: int | None = None,
+) -> CapitalGainsReport:
+    """Realized capital gains/losses for the active profile (or a single account).
+
+    When `year` is supplied, the realized_gains list and the total_*_cad
+    aggregates are filtered to that calendar year. This matches the
+    Tax Report PDF endpoint's `?year=` parameter (previously the table view
+    couldn't be year-scoped from the API, only from the frontend).
+    """
+    report = portfolio.build_portfolio(account=account, period=period).capital_gains
+    if year is None:
+        return report
+    filtered = [g for g in report.realized_gains if g.transaction_date.year == year]
+    total_taxable_cad = sum((g.total_gain_cad or g.total_gain) for g in filtered if g.taxable)
+    total_non_taxable_cad = sum((g.total_gain_cad or g.total_gain) for g in filtered if not g.taxable)
+    return type(report)(
+        realized_gains=filtered,
+        total_taxable_gain=round(sum(g.total_gain for g in filtered if g.taxable), 2),
+        total_non_taxable_gain=round(sum(g.total_gain for g in filtered if not g.taxable), 2),
+        total_taxable_gain_cad=round(total_taxable_cad, 2),
+        total_non_taxable_gain_cad=round(total_non_taxable_cad, 2),
+        total_superficial_loss_denied=report.total_superficial_loss_denied,
+        total_superficial_loss_denied_cad=report.total_superficial_loss_denied_cad,
+    )
 
 
 @app.get("/api/history/{ticker}", response_model=list[HistoricalDataPoint])
@@ -315,7 +361,7 @@ def refresh_prices() -> PriceRefreshResult:
     # Refresh FX too
     market_data.get_fx("USDCAD", max_age_minutes=0)
     market_data.get_fx("CADUSD", max_age_minutes=0)
-    store.set_state("last_price_refresh_at", datetime.utcnow().isoformat())
+    store.set_state("last_price_refresh_at", _now().isoformat())
     # Evaluate alerts using the freshly-fetched prices.
     try:
         alerts.evaluate_alerts()
@@ -335,7 +381,7 @@ def prices_status() -> PriceStatus:
     if not raw:
         return PriceStatus(last_refresh=None, age_minutes=None, stale=True)
     last = datetime.fromisoformat(raw)
-    age = int((datetime.utcnow() - last).total_seconds() / 60)
+    age = int((_now() - last).total_seconds() / 60)
     return PriceStatus(last_refresh=last, age_minutes=age, stale=age > 30)
 
 
@@ -594,7 +640,7 @@ def export_data_as_json() -> StreamingResponse:
         txs = [t.model_dump(mode="json") for t in store.get_all_transactions()]
         ticker_map = {k: v.model_dump(mode="json") for k, v in store.get_ticker_map().items()}
         payload = {
-            "exported_at": datetime.utcnow().isoformat(),
+            "exported_at": _now().isoformat(),
             "active_profile": profiles.get_active_profile().model_dump(mode="json"),
             "transactions": txs,
             "ticker_map": ticker_map,
@@ -690,6 +736,46 @@ def patch_profile(profile_id: str, req: RenameProfileRequest) -> profiles.Profil
     return p
 
 
+# ---------- graceful shutdown ----------
+
+@app.post("/api/shutdown")
+async def shutdown() -> dict:
+    """Called by the Electron main process before app quit so the backend can
+    checkpoint the SQLite WAL and exit cleanly.
+
+    Without this hook, the previous behavior on Windows was a raw TerminateProcess
+    from Electron, leaving multi-MB `.db-wal` files behind. The fix is two-step:
+    Electron POSTs here first, we checkpoint WAL synchronously, then we schedule
+    SIGTERM on this process from a daemon thread so the response can complete
+    before the loop tears down.
+    """
+    import os
+    import signal
+    import threading
+
+    try:
+        stats = db.checkpoint_wal()
+        logger.info("Shutdown checkpoint: %s", stats)
+    except Exception as e:
+        logger.warning("checkpoint_wal failed during shutdown: %s", e)
+        stats = {"error": str(e)}
+
+    def _terminate() -> None:
+        # Short delay so the HTTP response flushes to the Electron caller.
+        import time
+        time.sleep(0.5)
+        try:
+            if hasattr(signal, "CTRL_BREAK_EVENT"):
+                os.kill(os.getpid(), signal.CTRL_BREAK_EVENT)
+            else:
+                os.kill(os.getpid(), signal.SIGTERM)
+        except Exception:
+            os._exit(0)
+
+    threading.Thread(target=_terminate, daemon=True).start()
+    return {"status": "shutting_down", "checkpoint": stats}
+
+
 # ---------- entrypoint ----------
 
 def main() -> None:
@@ -700,11 +786,21 @@ def main() -> None:
     by the bootloader and is NOT re-importable by name (no sys.path entry for
     backend/). The string form would raise: 'Error loading ASGI app. Could not
     import module "backend.main".' The object form sidesteps the import.
+
+    Port resolution: `PORTFOLIO_PORT` env var takes precedence so the Electron
+    main process can pre-allocate a free port (avoiding the `[Errno 10048]
+    address already in use` crash on a second-launch attempt).
     """
+    import os
+    port_str = os.environ.get("PORTFOLIO_PORT", "7842")
+    try:
+        port = int(port_str)
+    except ValueError:
+        port = 7842
     uvicorn.run(
         app,
         host="127.0.0.1",
-        port=7842,
+        port=port,
         log_level="info",
         reload=False,
     )

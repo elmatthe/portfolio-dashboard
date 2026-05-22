@@ -56,7 +56,24 @@ class TfsaAnnualRow(BaseModel):
 
 
 class TfsaRoomReport(BaseModel):
+    """TFSA contribution room report.
+
+    Field semantics:
+      - `cumulative_limit_to_date`: pure sum of CRA annual limits since
+        eligibility (no withdrawal credits folded in).
+      - `total_room_accumulated`: cumulative_limit + prior-year withdrawal credits
+        (kept for backward compat — prefer cumulative_limit_to_date + the
+        withdrawals_last_year_added_back field for clarity).
+      - `available_room`: room currently available to contribute today; capped at 0.
+        Use this as the headline figure in any UI.
+      - `is_estimate`: True when settings are incomplete (birth_year or
+        resident_since unset). The eligibility_start_year then defaults to 2009
+        which overstates room for younger users — the UI must surface this.
+    """
+
     total_room_accumulated: float
+    cumulative_limit_to_date: float
+    available_room: float
     total_contributions: float
     total_withdrawals: float
     contribution_room_remaining: float
@@ -68,6 +85,8 @@ class TfsaRoomReport(BaseModel):
     annual_breakdown: list[TfsaAnnualRow] = Field(default_factory=list)
     eligibility_start_year: int  # Year the user first earned room (max of age-18 and residency)
     missing_settings: list[str] = Field(default_factory=list)
+    is_estimate: bool = False
+    calculation_note: str = ""
 
 
 def compute_tfsa_room(
@@ -78,7 +97,11 @@ def compute_tfsa_room(
     """Build the user's TFSA contribution-room report.
 
     Reads CONTRIBUTION + WITHDRAWAL transactions from every TFSA-typed
-    account in the active profile's database.
+    account in the active profile's database. When `birth_year` is missing,
+    the report falls back to 2009 eligibility (the safest default for users
+    who turned 18 before 2009) and sets `is_estimate=True` so the UI can
+    surface a warning — without this, a 25-year-old with empty settings
+    would see ~$109k of room.
     """
     t = today or date.today()
     current_year = t.year
@@ -91,8 +114,21 @@ def compute_tfsa_room(
         missing.append("tfsa_resident_since")
 
     # Eligibility starts the later of: year-turned-18 OR resident_since OR 2009.
+    # `birth_year` is sanity-bounded — silly values (negative, in the future)
+    # collapse to the 2009 baseline rather than producing absurd dates.
+    if birth_year is not None and (birth_year < 1900 or birth_year > current_year):
+        # Treat as missing so the UI surfaces the same correction prompt.
+        birth_year = None
+        if "tfsa_birth_year" not in missing:
+            missing.append("tfsa_birth_year")
     age18_year = (birth_year + 18) if birth_year else 2009
     eligibility_start = max(age18_year, resident_since or 2009, 2009)
+    is_estimate = bool(missing)
+
+    # FX service for USD TFSA contributions (rare, but the spec says use the
+    # contribution-date rate, not 1:1).
+    from backend.fx import get_fx_service
+    fx = get_fx_service()
 
     # Walk every CRA year from eligibility to today, accumulating room.
     contribs_by_year: dict[int, float] = {}
@@ -101,13 +137,11 @@ def compute_tfsa_room(
         if tx.account_type != "TFSA":
             continue
         amt = tx.net_amount
-        if tx.currency == "USD":
-            # TFSA contributions to Canadian dollar accounts are tracked in CAD;
-            # USD activity in a USD-currency TFSA is rare but we convert at a
-            # neutral 1:1 rate here. If the user holds a USD-side TFSA the
-            # exact CRA rule is to use the BoC rate on the contribution date —
-            # surface that as a TODO via the missing-settings note.
-            amt = amt * 1.0
+        if tx.currency != "CAD":
+            # USD/GBP/etc. TFSA activity is rare but must be converted at the
+            # contribution-date rate (CRA-correct), not 1:1.
+            rate = fx.rate_to_cad(tx.currency, tx.transaction_date)
+            amt = amt * rate
         y = tx.transaction_date.year
         if tx.action == "CONTRIBUTION" and amt > 0:
             contribs_by_year[y] = contribs_by_year.get(y, 0.0) + amt
@@ -152,12 +186,26 @@ def compute_tfsa_room(
 
     over_contributed = room_remaining < 0
     over_amount = max(0.0, -room_remaining)
+    available_room = max(0.0, room_remaining)
+
+    note = (
+        "Withdrawals restore room on January 1 of the following calendar year. "
+        "Over-contributions are subject to a 1%-per-month CRA penalty."
+    )
+    if is_estimate:
+        note = (
+            "Birth year / residency-since is unset; the calculation assumes "
+            "eligibility began in 2009 (the safe default for users 18+ before 2009). "
+            "Set these in Settings → TFSA for an accurate figure. "
+        ) + note
 
     return TfsaRoomReport(
         total_room_accumulated=round(total_limit_accumulated + withdraw_prior_years, 2),
+        cumulative_limit_to_date=round(total_limit_accumulated, 2),
+        available_room=round(available_room, 2),
         total_contributions=round(total_contribs, 2),
         total_withdrawals=round(total_withdraws, 2),
-        contribution_room_remaining=round(max(0.0, room_remaining), 2),
+        contribution_room_remaining=round(available_room, 2),
         current_year_limit=current_year_limit,
         contributions_this_year=round(contribs_by_year.get(current_year, 0.0), 2),
         withdrawals_last_year_added_back=round(withdrawals_last_year_added_back, 2),
@@ -166,4 +214,6 @@ def compute_tfsa_room(
         annual_breakdown=breakdown,
         eligibility_start_year=eligibility_start,
         missing_settings=missing,
+        is_estimate=is_estimate,
+        calculation_note=note,
     )

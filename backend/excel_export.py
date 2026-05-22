@@ -219,7 +219,7 @@ def _sheet_capital_gains(wb: Workbook, data) -> None:
     """Build the 'capital gains' worksheet."""
     ws = wb.create_sheet("Capital Gains")
     _write_header(ws, 1, ["Date", "Security", "Account", "Shares Sold", "Sale Price",
-                          "ACB / Share", "Gain / Share", "Total Gain", "Commission",
+                          "ACB / Share", "Gain / Share", "Total Gain", "Gain (CAD)", "Commission",
                           "Currency", "Taxable", "Superficial Loss Adj"])
     r = 2
     for g in data.capital_gains.realized_gains:
@@ -233,22 +233,24 @@ def _sheet_capital_gains(wb: Workbook, data) -> None:
         gain_cell = ws.cell(row=r, column=8, value=g.total_gain)
         gain_cell.number_format = _money_fmt(g.currency)
         gain_cell.fill = GAIN_FILL if g.total_gain >= 0 else LOSS_FILL
-        ws.cell(row=r, column=9, value=g.commission).number_format = _money_fmt(g.currency)
-        ws.cell(row=r, column=10, value=g.currency)
-        ws.cell(row=r, column=11, value="Yes" if g.taxable else "No (Registered)")
-        ws.cell(row=r, column=12, value=g.superficial_loss_adjustment).number_format = _money_fmt(g.currency)
+        gain_cad_cell = ws.cell(row=r, column=9, value=g.total_gain_cad if g.total_gain_cad is not None else g.total_gain)
+        gain_cad_cell.number_format = _money_fmt("CAD")
+        ws.cell(row=r, column=10, value=g.commission).number_format = _money_fmt(g.currency)
+        ws.cell(row=r, column=11, value=g.currency)
+        ws.cell(row=r, column=12, value="Yes" if g.taxable else "No (Registered)")
+        ws.cell(row=r, column=13, value=g.superficial_loss_adjustment).number_format = _money_fmt(g.currency)
         r += 1
 
     if r > 2:
         r += 1
         ws.cell(row=r, column=1, value="TOTALS").font = Font(bold=True)
-        ws.cell(row=r, column=7, value="Total Taxable Gain:").font = Font(bold=True)
-        c = ws.cell(row=r, column=8, value=data.capital_gains.total_taxable_gain)
+        ws.cell(row=r, column=8, value="Total Taxable Gain (CAD):").font = Font(bold=True)
+        c = ws.cell(row=r, column=9, value=data.capital_gains.total_taxable_gain_cad)
         c.number_format = _money_fmt("CAD")
         c.font = Font(bold=True)
         r += 1
-        ws.cell(row=r, column=7, value="Total Non-Taxable:").font = Font(bold=True)
-        c = ws.cell(row=r, column=8, value=data.capital_gains.total_non_taxable_gain)
+        ws.cell(row=r, column=8, value="Total Non-Taxable (CAD):").font = Font(bold=True)
+        c = ws.cell(row=r, column=9, value=data.capital_gains.total_non_taxable_gain_cad)
         c.number_format = _money_fmt("CAD")
         c.font = Font(bold=True)
         r += 2

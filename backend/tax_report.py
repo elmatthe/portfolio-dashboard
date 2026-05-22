@@ -106,12 +106,14 @@ def build_tax_report_pdf(year: int) -> bytes:
     txs = store.get_all_transactions()
     holdings, gains_report = compute_acb(txs, security_names=_security_names(txs))
 
-    # All gains/losses for the year
+    # All gains/losses for the year. Summary figures must be the CAD-converted
+    # values (each RealizedGain carries `total_gain_cad` computed at the FX rate
+    # on the transaction date); summing raw `total_gain` would mix currencies.
     year_gains: list[RealizedGain] = [
         g for g in gains_report.realized_gains if g.transaction_date.year == year
     ]
-    total_taxable = sum(g.total_gain for g in year_gains if g.taxable)
-    total_non_taxable = sum(g.total_gain for g in year_gains if not g.taxable)
+    total_taxable = sum((g.total_gain_cad or g.total_gain) for g in year_gains if g.taxable)
+    total_non_taxable = sum((g.total_gain_cad or g.total_gain) for g in year_gains if not g.taxable)
     inclusion_amount = total_taxable * 0.5  # CRA 50% inclusion rate
 
     # ---- Cover ----
@@ -181,14 +183,14 @@ def build_tax_report_pdf(year: int) -> bytes:
                 _money(outlays, g.currency),
                 _money(g.total_gain, g.currency),
             ])
-        # Subtotal row
-        subtotal_taxable = sum(g.total_gain for g in year_gains if g.taxable)
-        subtotal_all = sum(g.total_gain for g in year_gains)
+        # Subtotal row — sum the CAD-converted values, not the native ones.
+        subtotal_taxable = sum((g.total_gain_cad or g.total_gain) for g in year_gains if g.taxable)
+        subtotal_all = sum((g.total_gain_cad or g.total_gain) for g in year_gains)
         rows.append([
-            "", "", "", "", "", "Subtotal (taxable)", _money(subtotal_taxable, "CAD")
+            "", "", "", "", "", "Subtotal (taxable, CAD)", _money(subtotal_taxable, "CAD")
         ])
         rows.append([
-            "", "", "", "", "", "Subtotal (all)", _money(subtotal_all, "CAD")
+            "", "", "", "", "", "Subtotal (all, CAD)", _money(subtotal_all, "CAD")
         ])
         t = Table(rows, colWidths=[1.4*inch, 0.9*inch, 0.9*inch, 1.1*inch, 1.1*inch, 1.1*inch, 1.1*inch])
         style = _table_style()

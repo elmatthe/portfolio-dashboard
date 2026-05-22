@@ -258,6 +258,13 @@ _INTERNAL_ID_RE = re.compile(r"^[A-Z]{1,3}\d{5,}$")
 
 # Hand-mapped descriptions for the most common Questrade internal IDs in the wild.
 # Used as a fast path before any yfinance.search() call (which happens in market_data.py).
+#
+# TODO: this list covers only the top-traded U.S. tickers. Anything outside it
+# falls through to `yfinance.search()` (in market_data.py), which the comment in
+# `import_file` notes is unreliable for Questrade-internal symbols. A more
+# complete description→ticker mapping is available in tsiemens/acb under
+# `py/tx-export-convert/symbol_resolver.py` — port that table here when coverage
+# becomes a pain point.
 _KNOWN_DESCRIPTION_TICKERS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bAPPLE\s+INC\b", re.I), "AAPL"),
     (re.compile(r"\bVANGUARD\s+S&P\s*500\s+ETF\b", re.I), "VOO"),

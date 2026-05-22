@@ -1,4 +1,4 @@
-appId: com.yourname.portfoliodashboard
+appId: com.portfoliodashboard.app
 productName: Portfolio Dashboard
 directories:
   output: ../release

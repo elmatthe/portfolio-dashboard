@@ -127,7 +127,11 @@ export interface RealizedGain {
   sale_price: number;
   acb_per_share: number;
   gain_per_share: number;
+  /** Native-currency gain (CAD for CAD positions, USD for USD positions, etc.). */
   total_gain: number;
+  /** CAD-equivalent at the transaction-date FX rate; authoritative for tax aggregates. */
+  total_gain_cad?: number | null;
+  fx_rate_to_cad?: number | null;
   commission: number;
   currency: Currency;
   taxable: boolean;
@@ -145,9 +149,14 @@ export interface SuperficialLossAdjustment {
 
 export interface CapitalGainsReport {
   realized_gains: RealizedGain[];
+  /** Sums of native-currency `total_gain` values. Kept for compatibility; do not present in tax-facing UI. */
   total_taxable_gain: number;
   total_non_taxable_gain: number;
+  /** Authoritative CAD-equivalent totals for CRA-style reporting. */
+  total_taxable_gain_cad: number;
+  total_non_taxable_gain_cad: number;
   total_superficial_loss_denied: number;
+  total_superficial_loss_denied_cad: number;
 }
 
 export interface Holding {
@@ -421,7 +430,12 @@ export interface AttributionReport {
 }
 
 export interface TfsaRoomReport {
+  /** Cumulative CRA annual limits PLUS prior-year withdrawal credits. Kept for backward compat. */
   total_room_accumulated: number;
+  /** Pure sum of CRA annual limits since eligibility — no withdrawal credits folded in. */
+  cumulative_limit_to_date: number;
+  /** Headline figure: room available to contribute today, capped at 0. */
+  available_room: number;
   total_contributions: number;
   total_withdrawals: number;
   contribution_room_remaining: number;
@@ -433,6 +447,9 @@ export interface TfsaRoomReport {
   annual_breakdown: TfsaAnnualRow[];
   eligibility_start_year: number;
   missing_settings: string[];
+  /** True when birth_year or resident_since is unset — surface an estimate banner. */
+  is_estimate: boolean;
+  calculation_note: string;
 }
 
 export interface PriceRefreshResult {

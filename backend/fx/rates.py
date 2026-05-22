@@ -48,8 +48,12 @@ STATIC_RATES_TO_CAD: dict[str, float] = {
 }
 
 
-# Currencies for which the Bank of Canada publishes a CAD-denominated series.
-# Anything else (HKD/SEK/NOK) falls through to the static table.
+# Currencies for which the Bank of Canada publishes a CAD-denominated Valet
+# series. HKD/SEK/NOK are NOT published by BoC — they fall through to the
+# static table regardless of FX_LIVE_RATES, so trades in those currencies will
+# always be converted at the 2024 spot rates baked into STATIC_RATES_TO_CAD.
+# If sub-1% FX accuracy matters for HKD/SEK/NOK exposure, add another data
+# source here (e.g. exchangerate.host) rather than expecting BoC coverage.
 BOC_SERIES_IDS: dict[str, str] = {
     "USD": "FXUSDCAD",
     "GBP": "FXGBPCAD",

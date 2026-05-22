@@ -118,6 +118,7 @@ function CombinedGlance({ combined, fx, view, onChangeView }: GlanceProps) {
             label={`Period Start Value (${combined.period_label.toUpperCase()})`}
             value={combined.period_start_value_cad}
             ccy="CAD"
+            sublabel={periodStartDateHint(combined.period_label)}
           />
           <GlanceField
             label="Period Return"
@@ -174,8 +175,10 @@ function computeGlanceMetrics(
       const totalEquity = c.total_equity_usd + c.total_equity_cad * cadToUsd;
       const cash = c.cash_remaining_usd + c.cash_remaining_cad * cadToUsd;
       const marketValue = marketUsd + marketCad * cadToUsd;
-      // Net Deposits / P&L / Simple RoR are hidden in non-default views (Questrade does the same).
-      return { ccy: "USD", totalEquity, cash, marketValue, netDeposits: null, pnl: null, simpleRor: null };
+      const netDeposits = c.cash_deposited_usd + c.cash_deposited_cad * cadToUsd;
+      const pnl = totalEquity - netDeposits;
+      const simpleRor = netDeposits > 0 ? (pnl / netDeposits) * 100 : 0;
+      return { ccy: "USD", totalEquity, cash, marketValue, netDeposits, pnl, simpleRor };
     }
     case "cad_only": {
       return {
@@ -238,12 +241,14 @@ function GlanceField({
   ccy,
   asPct,
   tone,
+  sublabel,
 }: {
   label: string;
   value: number | null;
   ccy: "CAD" | "USD" | null;
   asPct?: boolean;
   tone?: "gain" | "loss" | "muted";
+  sublabel?: string;
 }) {
   const formatted =
     value === null
@@ -270,8 +275,26 @@ function GlanceField({
           <span className="text-xs text-text-muted ml-1">{ccy}</span>
         )}
       </div>
+      {sublabel && <div className="text-xs text-text-muted mt-0.5">{sublabel}</div>}
     </div>
   );
+}
+
+function periodStartDateHint(periodLabel: string): string {
+  // The backend snaps to the first weekly point on/after the calendar boundary;
+  // surfacing the calendar date here lets users cross-check against the chart.
+  const today = new Date();
+  const days: Record<string, number> = { "1m": 30, "3m": 90, "6m": 180, "1y": 365, "3y": 1095 };
+  const p = periodLabel.toLowerCase();
+  let start: Date;
+  if (p === "ytd") {
+    start = new Date(today.getFullYear(), 0, 1);
+  } else if (days[p]) {
+    start = new Date(today.getTime() - days[p] * 24 * 60 * 60 * 1000);
+  } else {
+    return "";
+  }
+  return `as of ~${start.toISOString().slice(0, 10)}`;
 }
 
 // ---------- Existing per-account table row (unchanged) ----------

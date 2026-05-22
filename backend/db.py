@@ -262,3 +262,24 @@ def db_size_kb() -> int:
     if not path.exists():
         return 0
     return path.stat().st_size // 1024
+
+
+def checkpoint_wal() -> dict[str, int]:
+    """Force a full WAL checkpoint and truncate the -wal file.
+
+    Called on graceful shutdown via the /api/shutdown endpoint. Without this,
+    a hard kill from Electron leaves multi-MB -wal files behind that don't get
+    folded into the main DB until the next read, producing slow first opens
+    on next launch.
+    """
+    eng = get_engine()
+    with eng.begin() as conn:
+        full = conn.exec_driver_sql("PRAGMA wal_checkpoint(FULL)").fetchone()
+        trunc = conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+    # PRAGMA wal_checkpoint returns (busy, log_frames, checkpointed_frames).
+    return {
+        "full_busy": full[0] if full else -1,
+        "full_log_frames": full[1] if full else -1,
+        "full_checkpointed": full[2] if full else -1,
+        "truncate_busy": trunc[0] if trunc else -1,
+    }

@@ -64,34 +64,34 @@ export default function CapitalGainsTable({ report }: Props) {
         <tfoot>
           <tr className="border-t border-border">
             <td colSpan={7} className="pt-4 text-right font-medium">
-              Total Taxable Gain:
+              Total Taxable Gain (CAD):
             </td>
             <td
               className={clsx(
                 "pt-4 px-3 text-right num font-semibold",
-                report.total_taxable_gain >= 0 ? "text-gain" : "text-loss",
+                report.total_taxable_gain_cad >= 0 ? "text-gain" : "text-loss",
               )}
             >
-              {fmt.money(report.total_taxable_gain, "CAD")}
+              {fmt.money(report.total_taxable_gain_cad, "CAD")}
             </td>
             <td className="pt-4" />
           </tr>
           <tr>
             <td colSpan={7} className="pt-1 text-right font-medium">
-              Total Non-Taxable (Registered):
+              Total Non-Taxable (CAD, Registered):
             </td>
             <td className="pt-1 px-3 text-right num font-semibold">
-              {fmt.money(report.total_non_taxable_gain, "CAD")}
+              {fmt.money(report.total_non_taxable_gain_cad, "CAD")}
             </td>
             <td />
           </tr>
-          {report.total_superficial_loss_denied > 0 && (
+          {report.total_superficial_loss_denied_cad > 0 && (
             <tr>
               <td colSpan={7} className="pt-1 text-right text-yellow-400 font-medium">
-                Superficial Loss Denied:
+                Superficial Loss Denied (CAD):
               </td>
               <td className="pt-1 px-3 text-right num text-yellow-400">
-                {fmt.money(report.total_superficial_loss_denied, "CAD")}
+                {fmt.money(report.total_superficial_loss_denied_cad, "CAD")}
               </td>
               <td />
             </tr>

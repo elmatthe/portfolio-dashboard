@@ -144,7 +144,7 @@ function Slideover({
   return (
     <div className="fixed inset-0 z-50 bg-black/60" onClick={onClose}>
       <aside
-        className="fixed top-0 right-0 bottom-0 w-[24rem] max-w-[92vw] bg-surface border-l border-border overflow-y-auto"
+        className="fixed top-0 right-0 bottom-0 w-[24rem] max-w-[92vw] bg-surface border-l border-border overflow-y-auto overscroll-contain pb-8"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-surface">

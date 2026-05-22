@@ -11,8 +11,11 @@ share with an advisor or keep for records.  Pages:
 from __future__ import annotations
 
 import io
+import logging
 from datetime import date, datetime, timedelta
 from typing import Iterable
+
+logger = logging.getLogger(__name__)
 
 import matplotlib
 matplotlib.use("Agg")  # headless renderer for PDF embedding
@@ -74,47 +77,63 @@ def _table_style() -> TableStyle:
 # ---------- chart helpers ----------
 
 def _portfolio_value_chart_png(year: int) -> bytes | None:
-    """Render the portfolio-value-vs-time chart for `year` as a PNG (matplotlib, headless)."""
-    points = portfolio_value_history()
-    in_year = [p for p in points if p.date.year == year]
-    if not in_year:
-        return None
-    dates = [p.date for p in in_year]
-    totals = [p.total_cad for p in in_year]
+    """Render the portfolio-value-vs-time chart for `year` as a PNG (matplotlib, headless).
 
-    fig, ax = plt.subplots(figsize=(7, 2.6))
-    ax.plot(dates, totals, color="#3B82F6", linewidth=1.8)
-    ax.fill_between(dates, totals, color="#3B82F6", alpha=0.15)
-    ax.set_title(f"Portfolio value — {year}", fontsize=11, color="#0F172A")
-    ax.grid(True, linestyle="--", alpha=0.4)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    fig.autofmt_xdate()
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    return buf.getvalue()
+    Returns None when there's no data in `year` or when matplotlib fails — the
+    PDF builder falls back to a "chart unavailable" placeholder so the user
+    sees a labelled blank rather than a silently-missing section.
+    """
+    try:
+        points = portfolio_value_history()
+        in_year = [p for p in points if p.date.year == year]
+        if not in_year:
+            return None
+        dates = [p.date for p in in_year]
+        totals = [p.total_cad for p in in_year]
+
+        fig, ax = plt.subplots(figsize=(7, 2.6))
+        ax.plot(dates, totals, color="#3B82F6", linewidth=1.8)
+        ax.fill_between(dates, totals, color="#3B82F6", alpha=0.15)
+        ax.set_title(f"Portfolio value — {year}", fontsize=11, color="#0F172A")
+        ax.grid(True, linestyle="--", alpha=0.4)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        fig.autofmt_xdate()
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        return buf.getvalue()
+    except Exception as e:
+        logger.exception("annual_report portfolio_value chart failed: %s", e)
+        return None
 
 
 def _monthly_dividends_chart_png(year: int) -> bytes | None:
-    """Render the monthly dividend bar chart for `year` as a PNG."""
-    rep = dividend_report()
-    in_year = [m for m in rep.monthly if m.month.startswith(str(year))]
-    if not in_year:
+    """Render the monthly dividend bar chart for `year` as a PNG.
+
+    Returns None when there's no data in `year` or when matplotlib fails.
+    """
+    try:
+        rep = dividend_report()
+        in_year = [m for m in rep.monthly if m.month.startswith(str(year))]
+        if not in_year:
+            return None
+        labels = [m.month[5:] for m in in_year]  # MM
+        values = [m.amount_cad for m in in_year]
+        fig, ax = plt.subplots(figsize=(7, 2.6))
+        ax.bar(labels, values, color="#10B981")
+        ax.set_title(f"Dividend income — {year}", fontsize=11, color="#0F172A")
+        ax.set_ylabel("CAD")
+        ax.grid(True, axis="y", linestyle="--", alpha=0.4)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        return buf.getvalue()
+    except Exception as e:
+        logger.exception("annual_report monthly_dividends chart failed: %s", e)
         return None
-    labels = [m.month[5:] for m in in_year]  # MM
-    values = [m.amount_cad for m in in_year]
-    fig, ax = plt.subplots(figsize=(7, 2.6))
-    ax.bar(labels, values, color="#10B981")
-    ax.set_title(f"Dividend income — {year}", fontsize=11, color="#0F172A")
-    ax.set_ylabel("CAD")
-    ax.grid(True, axis="y", linestyle="--", alpha=0.4)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    return buf.getvalue()
 
 
 # ---------- public ----------
@@ -171,6 +190,11 @@ def build_annual_report_pdf(year: int) -> bytes:
     if chart_png:
         img = Image(io.BytesIO(chart_png), width=6.8 * inch, height=2.5 * inch)
         elements.append(img)
+    else:
+        elements.append(Paragraph(
+            f"[Portfolio-value chart unavailable — no transactions recorded in {year}.]",
+            MUTED,
+        ))
     elements.append(PageBreak())
 
     # ----- Page 2: Performance summary -----
@@ -270,6 +294,12 @@ def build_annual_report_pdf(year: int) -> bytes:
     div_png = _monthly_dividends_chart_png(year)
     if div_png:
         elements.append(Image(io.BytesIO(div_png), width=6.8 * inch, height=2.5 * inch))
+        elements.append(Spacer(1, 12))
+    else:
+        elements.append(Paragraph(
+            f"[Dividend chart unavailable — no dividend rows recorded in {year}.]",
+            MUTED,
+        ))
         elements.append(Spacer(1, 12))
     div_rep = dividend_report()
     if div_rep.upcoming:

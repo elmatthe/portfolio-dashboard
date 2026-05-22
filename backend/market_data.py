@@ -25,6 +25,7 @@ from typing import Any
 import pandas as pd
 
 from backend import store
+from backend._time import utcnow_naive as _now
 from backend.models import Currency, ResolvedTicker
 
 
@@ -252,7 +253,7 @@ def get_quote(ticker: str, max_age_minutes: int = 15) -> QuoteResult:
                 price=float(price),
                 currency=currency_norm,
                 stale=False,
-                fetched_at=datetime.utcnow(),
+                fetched_at=_now(),
             )
     except Exception as e:
         logger.warning("Live quote failed for %s: %s", ticker, e)
@@ -280,7 +281,7 @@ def refresh_quotes(tickers: list[str]) -> dict[str, QuoteResult]:
 def ensure_history(ticker: str, start: str = "2010-01-01") -> pd.DataFrame:
     """Return weekly-or-better history for a ticker, fetching what we don't already have."""
     have = store.get_price_history(ticker)
-    need_fetch = have.empty or (have.index.max().date() < (datetime.utcnow() - timedelta(days=2)).date())
+    need_fetch = have.empty or (have.index.max().date() < (_now() - timedelta(days=2)).date())
 
     if need_fetch:
         try:

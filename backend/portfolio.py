@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from backend import market_data, store
+from backend._time import utcnow_naive as _now
 from backend.acb import compute as compute_acb
 from backend.models import (
     AccountBalances,
@@ -69,11 +70,22 @@ def period_to_start_date(period: str | None) -> date:
 
 
 def normalize_period(period: str | None) -> str:
-    """Return the canonical period label ('all' for anything unrecognised)."""
+    """Return the canonical period label.
+
+    None / empty string defaults to 'all'. Any other value MUST be one of
+    VALID_PERIODS — unknown values raise HTTP 422 rather than silently falling
+    through to 'all' (#PORT-3 in the audit).
+    """
     if not period:
         return "all"
     p = period.lower()
-    return p if p in VALID_PERIODS else "all"
+    if p in VALID_PERIODS:
+        return p
+    from fastapi import HTTPException
+    raise HTTPException(
+        status_code=422,
+        detail=f"Invalid period '{period}'. Valid values: {sorted(VALID_PERIODS)}",
+    )
 
 
 _ACCOUNT_LABELS: dict[str, str] = {
@@ -120,6 +132,10 @@ def _resolve_active_tab(account: str | None, tabs: list[AccountTab]) -> AccountT
       - None / "" / "all"  → All Accounts
       - "margin" / "tfsa"  → first tab matching that account_type
       - "<number>"         → specific account_number
+
+    Unknown values raise an HTTP 422 with the valid set surfaced in the detail
+    — previously these silently fell through to "all", masquerading as a valid
+    filter (#PORT-4 in the audit).
     """
     if not account or account.lower() == "all":
         return tabs[0]
@@ -129,7 +145,14 @@ def _resolve_active_tab(account: str | None, tabs: list[AccountTab]) -> AccountT
             return tab
         if tab.account_type and tab.account_type.lower() == a:
             return tab
-    return tabs[0]
+    from fastapi import HTTPException
+    valid = sorted({t.account_type for t in tabs[1:] if t.account_type} |
+                   {t.account_number for t in tabs[1:] if t.account_number} |
+                   {"all"})
+    raise HTTPException(
+        status_code=422,
+        detail=f"Unknown account '{account}'. Valid values: {valid}",
+    )
 
 
 def build_portfolio(
@@ -151,12 +174,25 @@ def build_portfolio(
 
     period_key = normalize_period(period)
     period_start = period_to_start_date(period_key)
-    period_active = period_key != "all"
 
     tabs = list_account_tabs()
     active = _resolve_active_tab(account, tabs)
     if active.account_number:
         txs = [t for t in txs if t.account_number == active.account_number]
+
+    # For "all", set period_start to a sentinel BEFORE the first transaction so
+    # `_value_history_at` returns the zero-value point that precedes the first
+    # deposit. With period_start_value_cad=0 the denominator falls through to
+    # net_deposits (correct lifetime ROI base). This is the primary fix for the
+    # "period=all always returns 0%" bug — the block below now runs for every
+    # period including "all".
+    if period_key == "all":
+        if txs:
+            first_tx = min(t.transaction_date for t in txs)
+            period_start = first_tx - timedelta(days=14)
+        else:
+            period_start = date.today()
+    period_active = True
 
     # ACB & realized gains
     holdings_acb, gains_report = compute_acb(txs, security_names=_security_names(txs))
@@ -171,7 +207,7 @@ def build_portfolio(
     fx_info = ExchangeRateInfo(
         usd_cad=usd_cad,
         cad_usd=1.0 / usd_cad if usd_cad else 0.0,
-        fetched_at=datetime.utcnow(),
+        fetched_at=_now(),
         stale=fx_stale,
     )
 
@@ -256,23 +292,36 @@ def build_portfolio(
             h.investment_weight_pct = h.market_value_cad / total_equity_cad * 100
 
     # Period-scoped metrics on the account/combined rows.
-    # We reuse the value-history reconstruction to figure out portfolio value
-    # at period_start. For each account row we filter by account_type.
+    # We reuse the value-history reconstruction (which is correctly per-
+    # account_number) to figure out both the period-start AND period-end portfolio
+    # value. This avoids the bug where `_aggregate_accounts` mis-attributes equity
+    # when two accounts share an account_type (multiple Margin accounts at the same
+    # broker, etc.) — there, `bal.total_equity_cad` is overwritten by whichever
+    # account_type bucket the dict iteration lands on last. The value-history walk
+    # filters txs by account_number per row, so it stays accurate per account.
     if period_active:
         all_history = portfolio_value_history(account=active.account_number or "all")
-        period_start_total = _value_history_at(all_history, period_start)
+        period_start_total = _value_history_at(all_history, period_start) if period_key != "all" else 0.0
+        period_end_total = all_history[-1].total_cad if all_history else 0.0
         for bal in [*accounts, combined]:
             bal.period_label = period_key
-            # Per-account period start value: filter accounts list to this row,
-            # rebuild a slim value history. For the combined row, reuse all_history.
+            # Per-account period start AND end value from the same per-account
+            # value-history series — keeps both endpoints consistent and per-
+            # account-number-accurate. For the combined row, reuse all_history.
+            # For the lifetime "all" view, start value is forced to 0 so the
+            # denominator falls through to total net deposits (the only
+            # meaningful base for lifetime ROI).
             if bal is combined:
                 bal.period_start_value_cad = period_start_total
+                bal_cur = period_end_total
             else:
                 slim = portfolio_value_history(account=bal.account_number)
-                bal.period_start_value_cad = _value_history_at(slim, period_start)
-            bal_cur = bal.total_equity_cad + bal.total_equity_usd * usd_cad
+                bal.period_start_value_cad = 0.0 if period_key == "all" else _value_history_at(slim, period_start)
+                bal_cur = slim[-1].total_cad if slim else 0.0
             # Subtract net deposits made DURING the period so new contributions
-            # don't get counted as portfolio return.
+            # don't get counted as portfolio return. TRANSFER actions are
+            # internal cash flows that don't add to external capital — they must
+            # be excluded from the denominator and from the cash-flow subtraction.
             net_dep_in_period = 0.0
             for t in txs:
                 if t.action not in ("DEPOSIT", "CONTRIBUTION", "WITHDRAWAL"):
@@ -287,7 +336,8 @@ def build_portfolio(
                 bal_cur - bal.period_start_value_cad - net_dep_in_period, 2
             )
             # Denominator: period_start_value if available, else the deposits made
-            # during the period (sensible for an account opened mid-period).
+            # during the period (sensible for an account opened mid-period — and
+            # for the all-time view where period_start_value is always 0).
             denom = bal.period_start_value_cad if bal.period_start_value_cad > 0 else net_dep_in_period
             bal.period_return_pct = (
                 round(bal.period_return_cad / denom * 100, 2) if denom > 0 else 0.0
@@ -1059,7 +1109,7 @@ def portfolio_value_history(account: str | None = None, period: str | None = Non
 
     # Determine the week boundaries we'll report on — every Sunday from the
     # first transaction to today.
-    today = pd.Timestamp(datetime.utcnow().date())
+    today = pd.Timestamp(_now().date())
     start = pd.Timestamp(first_date) - pd.Timedelta(days=7)
     week_index = pd.date_range(start, today, freq="W")
 

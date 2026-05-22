@@ -6,6 +6,182 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.5.0] — 2026-05-22
+
+The "audit + fix" release. A full-pass debug audit (catalogued in
+`markdown-instructions/ERROR-LOG.md`) surfaced 38 findings; this release
+addresses the 20 actionable ones — every Critical and High, every applicable
+Medium, and the Low items that don't depend on assets we don't yet have
+(real app icons, code-signing certificate).
+
+**Test suite: 111 → 113 passing (added the parser-registry integrity guard).**
+**TypeScript: 0 errors.** Manual end-to-end re-verification of every fix
+recorded as it landed.
+
+### Fixed — Critical
+
+- **FX never populated on Questrade / Wealthsimple imports.** The legacy
+  Questrade and Wealthsimple parsers in `backend/parser.py` built
+  `Transaction` rows without `fx_rate_to_cad` or `net_cad`, so every USD
+  position landed in the DB with `NULL` on those columns — directly
+  contradicting the v0.3.0 CHANGELOG. `parse_with_registry` now calls
+  `FXService.populate_transaction()` on every parsed row. The 9 new-broker
+  parsers continue to use their in-file FX values; the population helper is
+  idempotent.
+- **Capital-gains aggregator mixed CAD and USD without converting.** Each
+  `RealizedGain` now carries `total_gain_cad` computed at the
+  transaction-date FX rate; the new `total_taxable_gain_cad` and
+  `total_non_taxable_gain_cad` on `CapitalGainsReport` are the
+  authoritative figures for tax-facing UI. The native-currency `total_gain`
+  field is preserved for backward compatibility. Excel export's Capital
+  Gains sheet adds a "Gain (CAD)" column; the totals row now reports CAD
+  subtotals.
+- **Per-account `period_return_pct` was wildly wrong with multiple Margin
+  accounts.** Root cause: holdings equity was attributed to whichever
+  account_type bucket the dict iteration landed on last; the others showed
+  ~-92% / +1002% returns that cancelled only in the combined row. Fixed by
+  reading current and start-of-period values from the per-account
+  `portfolio_value_history` series, which is correctly filtered by
+  account_number. `TRANSFER` actions are now excluded from net-deposit
+  netting.
+- **`period=all` always returned 0%.** The `period_active` flag was set to
+  `period_key != "all"`, so the entire per-account period block was skipped
+  for lifetime ROI. The block now runs for every period; for "all", the
+  per-account start value is forced to 0 so the denominator falls through
+  to total net deposits, giving the standard
+  `(current − deposits) / deposits` formula.
+- **Rebalancer `new_money` mode generated buys exceeding the budget.** With
+  $5k of new money the algorithm previously emitted ~$8.6k of suggested
+  buys. The recommender now scales buys down proportionally to fit within
+  `new_money_cad`; the response carries an explicit warning naming the
+  scale factor and dollar figures.
+- **Rebalancer `rebalance` mode was cash-negative and cross-account.** Buys
+  could exceed sell proceeds (no cash-neutrality constraint), and TFSA
+  sells were used to fund Margin buys (which is impossible without
+  triggering withdrawal/contribution events). The recommender now:
+  - Scales buys proportionally if they exceed available sell proceeds.
+  - Surfaces a per-account_type warning when buys in an account don't have
+    matching sells in the same account_type.
+  - Broadens the tax-warning predicate beyond `account_type == "Margin"` to
+    cover Non-Registered, Individual, IRA, Roth IRA, Traditional IRA,
+    Crypto, Other.
+- **New positions are now supported in the rebalancer.** Previously
+  rejected with a warning-and-skip; the recommender now fetches the live
+  price via `market_data.get_quote()` and treats the position's
+  `current_value_cad` as zero.
+
+### Fixed — High
+
+- **Annual Report PDF was thin (~6 KB) with embedded charts missing.** Two
+  causes: (a) sparse-year data sets produced no chart input (legitimate
+  empty-state), but the PDF silently elided the chart section; (b) any
+  matplotlib failure inside chart generation propagated silently. Both
+  chart helpers are now wrapped in try/except + traceback log; the PDF
+  inserts a labelled "chart unavailable" placeholder so the user (and
+  support) can see when data is missing vs. when generation failed.
+- **`KeyError: 'generic'` in packaged builds.** Historical crash recorded
+  in `%APPDATA%\Portfolio Dashboard\backend.log` — `BROKER_PARSERS
+  ["generic"]` raised because `backend.parsers.generic` wasn't picked up
+  as a PyInstaller hidden import. `backend.spec` now lists all 12 parsers
+  by name (belt-and-suspenders alongside `collect_submodules`),
+  `parse_with_registry` raises a `RuntimeError` with the registered-keys
+  list when the generic fallback is missing, and `tests/test_registry.py`
+  asserts the contract.
+- **Electron hard-killed the backend, leaving multi-MB `.db-wal` files.**
+  Windows had no SIGTERM equivalent — `backendProcess.kill()` was
+  TerminateProcess, so the FastAPI lifespan never ran and the SQLite WAL
+  never checkpointed. We observed 4.5 MB `.db-wal` files in production.
+  New flow: on `before-quit`, Electron POSTs `/api/shutdown` (waits up to
+  4s), and FastAPI does a `wal_checkpoint(FULL)` + `wal_checkpoint
+  (TRUNCATE)` before terminating itself.
+- **Unknown `account` / `period` query params silently returned all
+  data.** `?account=RRSP` on a no-RRSP portfolio used to look like a valid
+  filter; `?period=garbage` fell through to "all". Both now return HTTP
+  422 with the valid value set in the detail.
+
+### Fixed — Medium
+
+- **TFSA: birth_year-unset overstated room.** Defaulted to 2009 eligibility
+  silently; a 25-year-old with empty settings could see ~$109k of room.
+  The report now sets `is_estimate: true` whenever `tfsa_birth_year` or
+  `tfsa_resident_since` is missing, and the `calculation_note` explains
+  the fallback. Frontend types updated.
+- **TFSA: `total_room_accumulated` was a misleading composite.** Two new
+  fields disambiguate: `cumulative_limit_to_date` (pure CRA limits) and
+  `available_room` (current contribution headroom). Old field preserved
+  for backward compat.
+- **TFSA USD contributions converted at hardcoded 1.0.** Now uses
+  `FXService.rate_to_cad(currency, transaction_date)`.
+- **`backend.acb.compute(fx_rate_for_date=…)` was a dead parameter.** Now
+  wired through to populate `total_gain_cad` and the report's
+  `total_*_cad` aggregates. Defaults to the `FXService` singleton when not
+  supplied.
+- **`/api/capital-gains` lacked a `?year=` filter.** The endpoint now
+  accepts a year and returns the realized_gains + CAD aggregates filtered
+  to that calendar year (matching the Tax Report PDF endpoint's
+  parameter).
+- **Same-day repurchases were excluded from superficial-loss qualifying
+  buys.** CRA's 30-day window is inclusive of the sale date. Now matches
+  CRA wording.
+- **Backend port was hardcoded 7842.** Electron now resolves the port at
+  startup via `findFreePort` — preferring 7842, falling back to any free
+  OS-assigned port. The chosen port is exposed to the renderer via the
+  preload bridge's `desktop.getBackendPort()`. Backend reads
+  `PORTFOLIO_PORT` env var. A second-launch attempt no longer crashes
+  with `[Errno 10048] address already in use`.
+
+### Fixed — Low
+
+- `datetime.utcnow()` is deprecated in Python 3.12+. All 21 call sites
+  swept to a shared `backend._time.utcnow_naive()` helper. Pytest
+  DeprecationWarning count dropped from 18 to 0.
+- `electron/package.json`'s `dev` script used Bash syntax (`NODE_ENV=
+  development electron .`), which fails on Windows PowerShell. Now uses
+  `cross-env`.
+- ESLint wired up: `frontend/.eslintrc.json` + `npm run lint`. Initial run
+  reports 0 errors and 9 warnings (mostly unused imports and one
+  `exhaustive-deps` warning) — clean enough to land as the baseline.
+- `shell.openExternal(url)` now validates `parsed.protocol` against an
+  allow-list (`http:` / `https:`) before forwarding to the OS shell.
+- Content-Security-Policy header attached to all renderer responses via
+  `session.defaultSession.webRequest.onHeadersReceived`. Restricts
+  `connect-src` to the local backend; tight `default-src 'self'`.
+- `appId` placeholder `com.yourname.portfoliodashboard` replaced with
+  `com.portfoliodashboard.app`. `electron/package.json` author placeholder
+  replaced.
+- Version strings synchronised across `backend/main.py`, `frontend/
+  package.json`, `electron/package.json` (all now 0.5.0). README banner
+  matches.
+- UTF-8 charset middleware added — every JSON response now carries
+  `application/json; charset=utf-8` so the simulator's `→ × ·` symbols
+  survive any downstream non-UTF-8 reader.
+- `FXService` BOC_SERIES_IDS comment now explicitly notes HKD/SEK/NOK are
+  static-rate-only (BoC doesn't publish them).
+- Questrade description→ticker hand-mapped list now documents the gap and
+  points at `tsiemens/acb` for a more complete table.
+
+### Internal
+
+- New module `backend/_time.py` — `utcnow_naive()` helper used everywhere
+  the codebase previously called `datetime.utcnow()`.
+- New `RealizedGain.total_gain_cad`, `RealizedGain.fx_rate_to_cad`,
+  `CapitalGainsReport.total_taxable_gain_cad`,
+  `CapitalGainsReport.total_non_taxable_gain_cad`,
+  `CapitalGainsReport.total_superficial_loss_denied_cad`,
+  `TfsaRoomReport.cumulative_limit_to_date`,
+  `TfsaRoomReport.available_room`,
+  `TfsaRoomReport.is_estimate`,
+  `TfsaRoomReport.calculation_note`. Frontend `types.ts` mirrors them.
+- New `backend.db.checkpoint_wal()` helper called from `/api/shutdown`.
+- `parse_with_registry` raises a clear `RuntimeError` if the generic
+  fallback parser is missing, instead of the cryptic `KeyError: 'generic'`
+  that previous packaged builds crashed with.
+- `tests/test_registry.py` — asserts the 12-parser contract.
+- Audit artefacts (`scripts/_audit_db.py`, dev-server logs,
+  `Screenshot 2026-05-20 210633.png`) removed from the working tree.
+
+---
+
 ## [0.3.0] — 2026-05-19
 
 The multi-broker + multi-currency release. The app now ingests transaction

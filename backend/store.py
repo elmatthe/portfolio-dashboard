@@ -18,6 +18,7 @@ from sqlalchemy import delete, insert, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from backend import db
+from backend._time import utcnow_naive as _now
 from backend.models import (
     AppSettings,
     ImportInfo,
@@ -46,7 +47,7 @@ def upsert_transactions(transactions: list[Transaction]) -> UpsertResult:
             total = conn.execute(select(db.transactions).with_only_columns(db.transactions.c.id)).fetchall()
         return UpsertResult(inserted=0, skipped_duplicates=0, total_in_db=len(total))
 
-    now = datetime.utcnow()
+    now = _now()
     rows = [
         {
             "hash": t.hash,
@@ -191,7 +192,7 @@ def save_ticker_resolution(resolved: ResolvedTicker) -> None:
         "currency": resolved.currency,
         "resolved_from": resolved.resolved_from,
         "status": resolved.status,
-        "resolved_at": datetime.utcnow(),
+        "resolved_at": _now(),
     }
     with engine.begin() as conn:
         stmt = sqlite_insert(db.ticker_map).values(**payload)
@@ -217,7 +218,7 @@ def get_unresolved_raw_symbols() -> list[str]:
 def save_current_price(ticker: str, price: float, currency: str) -> None:
     """Upsert the latest price for a ticker into the price_cache table."""
     engine = db.get_engine()
-    payload = {"ticker": ticker, "price": float(price), "currency": currency, "fetched_at": datetime.utcnow()}
+    payload = {"ticker": ticker, "price": float(price), "currency": currency, "fetched_at": _now()}
     with engine.begin() as conn:
         stmt = sqlite_insert(db.price_cache).values(**payload)
         stmt = stmt.on_conflict_do_update(
@@ -236,7 +237,7 @@ def get_cached_price(ticker: str, max_age_minutes: int | None = None) -> dict[st
         ).mappings().first()
     if row is None:
         return None
-    age = (datetime.utcnow() - row["fetched_at"]).total_seconds() / 60
+    age = (_now() - row["fetched_at"]).total_seconds() / 60
     stale = max_age_minutes is not None and age > max_age_minutes
     return {
         "ticker": row["ticker"],
@@ -319,7 +320,7 @@ def save_exchange_rate(pair: str, rate: float, rate_date: str | None = None) -> 
         "pair": pair,
         "rate": float(rate),
         "rate_date": rate_date,
-        "fetched_at": datetime.utcnow(),
+        "fetched_at": _now(),
     }
     with engine.begin() as conn:
         stmt = sqlite_insert(db.exchange_rates).values(**payload).prefix_with("OR REPLACE")
@@ -341,7 +342,7 @@ def get_exchange_rate(
         row = conn.execute(stmt).mappings().first()
     if row is None:
         return None
-    age = (datetime.utcnow() - row["fetched_at"]).total_seconds() / 60
+    age = (_now() - row["fetched_at"]).total_seconds() / 60
     stale = max_age_minutes is not None and age > max_age_minutes
     return {
         "pair": row["pair"],

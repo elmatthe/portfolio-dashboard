@@ -29,10 +29,37 @@ import type {
 } from "./types";
 
 // In dev the Vite proxy forwards /api → :7842. In production Electron loads
-// from file:// and the backend is on localhost:7842, so we use an absolute URL.
-const BASE =
-  // @ts-expect-error — Vite injects import.meta.env
-  import.meta.env?.DEV ? "" : "http://localhost:7842";
+// from file:// and the backend is on localhost:<dynamic-port>, so we use an
+// absolute URL. The port is resolved at app start by electron/main.js's
+// findFreePort() — preferring 7842, falling back to any free port. The
+// renderer reads the actual value via the preload bridge.
+let _backendPort = 7842;
+// @ts-expect-error — Vite injects import.meta.env
+const IS_DEV: boolean = !!import.meta.env?.DEV;
+
+// Kick off the port lookup at module load. The first few requests may fire
+// before this settles — they'll hit 7842, which is what the dev proxy targets
+// anyway, so the only path that benefits from the resolved value is production
+// Electron with an OS-assigned fallback port.
+(() => {
+  if (IS_DEV) return;
+  const desktop = (globalThis as any).desktop;
+  if (desktop && typeof desktop.getBackendPort === "function") {
+    desktop.getBackendPort().then((p: number) => {
+      if (typeof p === "number" && p > 0) _backendPort = p;
+    }).catch(() => { /* fall back to default */ });
+  }
+})();
+
+function baseUrl(): string {
+  return IS_DEV ? "" : `http://localhost:${_backendPort}`;
+}
+
+// Backwards-compat: many callers read BASE directly inside template literals
+// (`${BASE}/api/foo`). We expose a string-like proxy whose `toString()` /
+// `valueOf()` are evaluated at each interpolation, so any port resolution
+// that lands after module load is automatically picked up.
+const BASE: string = ({ toString: baseUrl, valueOf: baseUrl } as unknown) as string;
 
 function withAccountAndPeriod(account?: string, period?: string): string {
   const parts: string[] = [];
