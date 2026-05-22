@@ -3,7 +3,7 @@
 // the BrowserWindow loading the bundled React frontend. A small splash window
 // shows immediately so the user sees activity during the 1-3s backend startup.
 // On quit, SIGTERMs the backend and waits for it to exit cleanly.
-const { app, BrowserWindow, ipcMain, dialog, shell, session } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const net = require("node:net");
@@ -291,40 +291,11 @@ async function createWindow() {
   });
 }
 
-function installCsp() {
-  // Attach a Content-Security-Policy header to every response served to the
-  // renderer. In production the renderer loads `index.html` from file://, so
-  // its only "network" peer is the local backend on 127.0.0.1:<BACKEND_PORT>.
-  // Tightening the CSP closes the door on a hypothetical compromised page
-  // making outbound network calls. 'unsafe-inline' is needed for Vite's
-  // injected styles + Tailwind utilities.
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    const csp = [
-      "default-src 'self'",
-      "script-src 'self'",
-      `connect-src 'self' http://127.0.0.1:${BACKEND_PORT} ws://127.0.0.1:${BACKEND_PORT}`,
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob:",
-      "font-src 'self' data:",
-      "object-src 'none'",
-      "frame-ancestors 'none'",
-      "base-uri 'self'",
-    ].join("; ");
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        "Content-Security-Policy": [csp],
-      },
-    });
-  });
-}
-
 app.whenReady().then(async () => {
   try {
     createSplash();
     BACKEND_PORT = await findFreePort(PREFERRED_BACKEND_PORT);
     console.log(`[electron] Backend port resolved to ${BACKEND_PORT}`);
-    installCsp();
     startBackend();
     await waitForBackend();
     await createWindow();

@@ -6,6 +6,39 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.5.1] — 2026-05-22
+
+Hotfix for the v0.5.0 Content-Security-Policy header that broke the entire
+renderer in production.
+
+### Fixed
+
+- **Removed the renderer-side CSP injection added in v0.5.0 Fix #26.** The
+  `session.defaultSession.webRequest.onHeadersReceived` block in
+  `electron/main.js` was attaching a `default-src 'self'` CSP to every
+  response. In dev (Vite at `:5173`) and production (`file://` index +
+  `localhost:7842` backend) that policy blocked fetches to the backend,
+  inline scripts emitted by Vite/Tailwind, and inline-styled components —
+  the app loaded but every panel was empty.
+
+  Decision: don't restore the CSP. For a local-first app where the only
+  network peer is `127.0.0.1:7842`, the CSP didn't close any real attack
+  surface that `contextIsolation` and `nodeIntegration: false` don't
+  already cover. The proper fix (a tight policy that whitelists the actual
+  loader-emitted hashes + `connect-src` to whichever port the OS handed
+  out) costs more than it pays off here.
+
+- The `session` import is gone from `electron/main.js`'s electron require.
+
+### Unchanged from 0.5.0
+
+- All 6 critical / 4 high / medium / low fixes from v0.5.0 stay in.
+- `contextIsolation: true`, `nodeIntegration: false`, `sandbox: false` on
+  the main BrowserWindow (sandbox stays off so the renderer can talk to
+  the backend on localhost — that was always part of the design).
+
+---
+
 ## [0.5.0] — 2026-05-22
 
 The "audit + fix" release. A full-pass debug audit (catalogued in

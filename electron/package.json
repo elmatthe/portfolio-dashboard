@@ -1,7 +1,7 @@
 {
   "name": "portfolio-dashboard",
   "productName": "Portfolio Dashboard",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Local-first multi-broker portfolio tracker — 11 brokers, 10 currencies",
   "main": "main.js",
   "author": "Portfolio Dashboard contributors",
