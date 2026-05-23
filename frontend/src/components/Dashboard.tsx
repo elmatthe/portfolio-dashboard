@@ -98,6 +98,8 @@ export default function Dashboard({ onImportNew }: Props) {
             combined={data.combined}
             fx={data.exchange_rate}
             showCombinedRow={!isFiltered && data.accounts.length > 1}
+            periodClamped={data.period_clamped}
+            periodStartDate={data.period_start_date}
           />
         </section>
 

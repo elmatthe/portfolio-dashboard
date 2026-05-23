@@ -6,6 +6,58 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.5.3] — 2026-05-22
+
+Four-bug fix release covering overlay positioning, time-weighted period
+returns, period clamping, and the TFSA CAD-only view.
+
+### Fixed
+
+- **Settings, Reports, Simulator, and Alerts panels now portal-mount to
+  `<body>`.** Same root cause as the v0.5.2 Create-New-Profile fix: the
+  `fixed inset-0` outer divs were rendered as children of trigger buttons
+  in the header, so any ancestor with `transform`/`filter`/`will-change`
+  became the containing block, pinning them inside the header bar. Factored
+  the portal + Escape + backdrop-click behaviour into a shared
+  `ModalPortal` primitive at `frontend/src/components/ModalPortal.tsx`
+  and switched all five modals to use it.
+
+- **Period return % uses Modified Dietz.** The old simple-net-return
+  formula `(end − start − deposits) / start` was dividing multi-year gains
+  by tiny start values whenever most deposits happened near the start of
+  the window. 1Y showed +104%, 3Y showed +433%, against a 12.91% lifetime
+  ROR. Modified Dietz weights each cash flow by its remaining time in the
+  period:
+  `Return = (End − Start − ΣCF) / (Start + Σ(CF × (days_remaining / total_days)))`.
+  Implemented in `backend/portfolio.py`'s `build_portfolio` per-account
+  loop. TRANSFER actions are excluded from both numerator and denominator.
+
+- **Periods clamp to the first transaction date.** When the requested
+  window (e.g. 3Y) predates the first transaction in the active scope,
+  `period_start` is now clamped to that first-tx date and a new
+  `period_clamped: true` flag flows through `PortfolioData`. The frontend
+  renders the period chip as `Since MMM YYYY` (e.g. `Since May 2020`)
+  instead of the requested `3Y` so the user understands why the start
+  value reflects a shorter window than they picked.
+
+- **TFSA + CAD-only view shows real numbers.** The frontend's
+  `computeGlanceMetrics` previously returned `null` for `netDeposits`,
+  `pnl`, and `simpleRor` in `cad_only` and `usd_only` modes, which the UI
+  rendered as "—". Now the single-currency view uses the per-currency
+  fields directly (`cash_deposited_cad`, `total_equity_cad`, etc.) — so a
+  TFSA with all-CAD holdings displays correct Net Deposits, Total P&L,
+  and Simple Rate of Return in CAD-only mode.
+
+### Internal
+
+- New `frontend/src/components/ModalPortal.tsx` — tiny shared primitive
+  that wraps `createPortal(..., document.body)` + Escape-to-close +
+  backdrop-click-to-close. Five modals now share it.
+- New `period_clamped: bool` and updated `period_start_date: date | None`
+  on `PortfolioData`. Frontend `types.ts` mirrors them.
+
+---
+
 ## [0.5.2] — 2026-05-22
 
 Hotfix for the "Create New Profile" dialog being squeezed into the top

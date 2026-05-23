@@ -514,6 +514,10 @@ class PortfolioData(BaseModel):
     active_tab: str = "all"
     period: str = "all"
     period_start_date: date | None = None
+    # True when the requested period (e.g. 3Y) predates the first transaction
+    # and was clamped to first_transaction_date. The UI uses this to render
+    # "Since MMM YYYY" in place of the fixed-duration period label.
+    period_clamped: bool = False
 
 
 # ---------- Settings & misc API responses ----------

@@ -11,6 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 import { X, Download, FileText, BarChart3 } from "lucide-react";
 import clsx from "clsx";
 import { api } from "../api";
+import { ModalPortal } from "./ModalPortal";
 
 type ReportKind = "tax" | "annual";
 
@@ -35,14 +36,14 @@ export default function ReportsModal({ onClose, initialKind = "tax" }: Props) {
   const filename = kind === "tax" ? `tax_report_${year}.pdf` : `annual_report_${year}.pdf`;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 overflow-y-auto" onClick={onClose}>
+    <ModalPortal onClose={onClose} labelledBy="reports-modal-title">
       <div className="min-h-full flex items-center justify-center px-4 py-[60px]">
         <div
           className="card w-[28rem] max-w-[90vw] max-h-[calc(100vh-120px)] overflow-y-auto"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Generate report</h2>
+            <h2 id="reports-modal-title" className="text-lg font-semibold">Generate report</h2>
             <button className="text-text-muted hover:text-text-primary" onClick={onClose}>
               <X size={16} />
             </button>
@@ -82,7 +83,7 @@ export default function ReportsModal({ onClose, initialKind = "tax" }: Props) {
           </div>
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 }
 

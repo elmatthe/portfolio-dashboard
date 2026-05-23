@@ -9,6 +9,7 @@ import { X, FlaskConical } from "lucide-react";
 import clsx from "clsx";
 import { api } from "../api";
 import type { AccountType, Holding, SimulationResult } from "../types";
+import { ModalPortal } from "./ModalPortal";
 
 type Mode = "buy" | "sell" | "lump_sum";
 
@@ -51,14 +52,14 @@ export default function SimulatorModal({ holdings, onClose }: Props) {
   });
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 overflow-y-auto" onClick={onClose}>
+    <ModalPortal onClose={onClose} labelledBy="simulator-modal-title">
       <div className="min-h-full flex items-center justify-center px-4 py-[60px]">
         <div
           className="card w-[34rem] max-w-[92vw] max-h-[calc(100vh-120px)] overflow-y-auto"
           onClick={(e) => e.stopPropagation()}
         >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold inline-flex items-center gap-2">
+          <h2 id="simulator-modal-title" className="text-lg font-semibold inline-flex items-center gap-2">
             <FlaskConical size={18} /> What-If Simulator
           </h2>
           <button className="text-text-muted hover:text-text-primary" onClick={onClose}>
@@ -187,7 +188,7 @@ export default function SimulatorModal({ holdings, onClose }: Props) {
         )}
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 }
 

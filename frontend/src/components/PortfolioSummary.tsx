@@ -8,6 +8,10 @@ interface Props {
   combined: AccountBalances;
   fx: ExchangeRateInfo;
   showCombinedRow: boolean;
+  /** True when the requested period predated the first transaction and was clamped. */
+  periodClamped?: boolean;
+  /** Resolved period start date (used for the "Since MMM YYYY" label when clamped). */
+  periodStartDate?: string | null;
 }
 
 type CurrencyView = "combined_cad" | "combined_usd" | "cad_only" | "usd_only";
@@ -19,7 +23,7 @@ const VIEW_OPTIONS: { value: CurrencyView; label: string }[] = [
   { value: "usd_only", label: "USD only" },
 ];
 
-export default function PortfolioSummary({ accounts, combined, fx, showCombinedRow }: Props) {
+export default function PortfolioSummary({ accounts, combined, fx, showCombinedRow, periodClamped, periodStartDate }: Props) {
   const [view, setView] = useState<CurrencyView>("combined_cad");
   // When the user filters to a single account, collapse to that one row —
   // no per-type breakdown, no Combined row.
@@ -33,7 +37,14 @@ export default function PortfolioSummary({ accounts, combined, fx, showCombinedR
 
   return (
     <div className="space-y-4">
-      <CombinedGlance combined={combined} fx={fx} view={view} onChangeView={setView} />
+      <CombinedGlance
+        combined={combined}
+        fx={fx}
+        view={view}
+        onChangeView={setView}
+        periodClamped={periodClamped}
+        periodStartDate={periodStartDate}
+      />
 
       <div className="card overflow-x-auto">
         <h3 className="text-sm font-medium text-text-muted mb-3">By Account</h3>
@@ -79,11 +90,21 @@ interface GlanceProps {
   fx: ExchangeRateInfo;
   view: CurrencyView;
   onChangeView: (v: CurrencyView) => void;
+  periodClamped?: boolean;
+  periodStartDate?: string | null;
 }
 
-function CombinedGlance({ combined, fx, view, onChangeView }: GlanceProps) {
+function CombinedGlance({ combined, fx, view, onChangeView, periodClamped, periodStartDate }: GlanceProps) {
   const metrics = computeGlanceMetrics(combined, fx, view);
   const periodActive = combined.period_label && combined.period_label !== "all";
+  // When the requested period (e.g. 3Y) predated the first transaction and
+  // got clamped, show "Since MMM YYYY" instead of the requested fixed-duration
+  // label so the user understands why the start value reflects a shorter
+  // window than they picked.
+  const periodChip =
+    periodClamped && periodStartDate
+      ? `Since ${new Date(periodStartDate).toLocaleString("en-CA", { month: "short", year: "numeric" })}`
+      : combined.period_label?.toUpperCase();
 
   return (
     <div className="card">
@@ -115,10 +136,10 @@ function CombinedGlance({ combined, fx, view, onChangeView }: GlanceProps) {
       {periodActive && (
         <div className="mt-5 pt-4 border-t border-border grid grid-cols-2 md:grid-cols-3 gap-y-5 gap-x-8">
           <GlanceField
-            label={`Period Start Value (${combined.period_label.toUpperCase()})`}
+            label={`Period Start Value (${periodChip})`}
             value={combined.period_start_value_cad}
             ccy="CAD"
-            sublabel={periodStartDateHint(combined.period_label)}
+            sublabel={periodStartDate ? `as of ${periodStartDate}` : periodStartDateHint(combined.period_label)}
           />
           <GlanceField
             label="Period Return"
@@ -181,25 +202,36 @@ function computeGlanceMetrics(
       return { ccy: "USD", totalEquity, cash, marketValue, netDeposits, pnl, simpleRor };
     }
     case "cad_only": {
+      // Single-currency-scope: show the CAD-leg net deposits / P&L / ROR.
+      // Previously these returned null (rendering as "—"), which broke the
+      // entire CAD-only view for accounts whose holdings are all CAD —
+      // notably TFSA, which can only hold CAD-listed securities under CRA
+      // rules (no USD-side TFSA in this app's data model).
+      const netDeposits = c.cash_deposited_cad;
+      const pnl = c.total_equity_cad - netDeposits;
+      const simpleRor = netDeposits > 0 ? (pnl / netDeposits) * 100 : 0;
       return {
         ccy: "CAD",
         totalEquity: c.total_equity_cad,
         cash: c.cash_remaining_cad,
         marketValue: marketCad,
-        netDeposits: null,
-        pnl: null,
-        simpleRor: null,
+        netDeposits,
+        pnl,
+        simpleRor,
       };
     }
     case "usd_only": {
+      const netDeposits = c.cash_deposited_usd;
+      const pnl = c.total_equity_usd - netDeposits;
+      const simpleRor = netDeposits > 0 ? (pnl / netDeposits) * 100 : 0;
       return {
         ccy: "USD",
         totalEquity: c.total_equity_usd,
         cash: c.cash_remaining_usd,
         marketValue: marketUsd,
-        netDeposits: null,
-        pnl: null,
-        simpleRor: null,
+        netDeposits,
+        pnl,
+        simpleRor,
       };
     }
   }

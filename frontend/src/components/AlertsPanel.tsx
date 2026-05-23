@@ -15,6 +15,7 @@ import clsx from "clsx";
 import { api, fmt } from "../api";
 import type { Currency, Holding, PriceAlert } from "../types";
 import { useToast } from "./Toast";
+import { ModalPortal } from "./ModalPortal";
 
 interface Props {
   holdings: Holding[];
@@ -142,13 +143,17 @@ function Slideover({
   }, [ticker, holdings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60" onClick={onClose}>
+    <ModalPortal
+      onClose={onClose}
+      labelledBy="alerts-slideover-title"
+      backdropClassName="fixed inset-0 z-50 bg-black/60"
+    >
       <aside
         className="fixed top-0 right-0 bottom-0 w-[24rem] max-w-[92vw] bg-surface border-l border-border overflow-y-auto overscroll-contain pb-8"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-surface">
-          <div className="font-semibold inline-flex items-center gap-2">
+          <div id="alerts-slideover-title" className="font-semibold inline-flex items-center gap-2">
             <Bell size={16} /> Price alerts
           </div>
           <button className="text-text-muted hover:text-text-primary" onClick={onClose}>
@@ -250,6 +255,6 @@ function Slideover({
           ))}
         </div>
       </aside>
-    </div>
+    </ModalPortal>
   );
 }

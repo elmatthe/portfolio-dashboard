@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, Pencil, Plus, Trash2, X } from "lucide-react";
 import clsx from "clsx";
@@ -7,6 +6,7 @@ import { api, fmt } from "../api";
 import type { Profile } from "../types";
 import { useProfile } from "./ProfileContext";
 import { useToast } from "./Toast";
+import { ModalPortal } from "./ModalPortal";
 
 const PROFILE_NAME_MAX = 40;
 
@@ -335,32 +335,8 @@ function AddProfileModal({
     onError: (e: Error) => toast.push(e.message || "Could not create profile", "error"),
   });
 
-  // Close on Escape. We're inside a portal mounted on document.body so the
-  // listener doesn't have to dance around the ProfileSwitcher's outside-click
-  // handler.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  // Render into document.body via a portal so the modal escapes any ancestor
-  // that has `transform` / `filter` / `will-change` set — those create a
-  // containing block for `position: fixed`, which would otherwise collapse
-  // the modal into the header bar.
-  const modal = (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="add-profile-title"
-      className="fixed inset-0 z-50 bg-black/60 overflow-y-auto"
-      onClick={onClose}
-    >
+  return (
+    <ModalPortal onClose={onClose} labelledBy="add-profile-title">
       <div className="min-h-full flex items-center justify-center px-4 py-[60px]">
         <div
           className="card w-96 max-w-[90vw] max-h-[calc(100vh-120px)] overflow-y-auto"
@@ -413,8 +389,6 @@ function AddProfileModal({
           </div>
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
-
-  return createPortal(modal, document.body);
 }

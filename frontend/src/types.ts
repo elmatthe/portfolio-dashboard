@@ -262,6 +262,8 @@ export interface PortfolioData {
   active_tab: string;
   period: PeriodKey;
   period_start_date: string | null;
+  /** True when the requested period predated the first transaction and was clamped. */
+  period_clamped: boolean;
 }
 
 export interface HistoricalDataPoint {

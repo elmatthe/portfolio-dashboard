@@ -186,12 +186,24 @@ def build_portfolio(
     # net_deposits (correct lifetime ROI base). This is the primary fix for the
     # "period=all always returns 0%" bug — the block below now runs for every
     # period including "all".
+    first_tx_date: date | None = min((t.transaction_date for t in txs), default=None)
     if period_key == "all":
-        if txs:
-            first_tx = min(t.transaction_date for t in txs)
-            period_start = first_tx - timedelta(days=14)
+        if first_tx_date:
+            period_start = first_tx_date - timedelta(days=14)
         else:
             period_start = date.today()
+
+    # Clamp fixed-duration periods (1m / 3m / 6m / 1y / 3y) to the first
+    # available transaction date when the requested window predates the
+    # portfolio. Without this, selecting "3Y" on a 6-month-old portfolio
+    # divides a tiny gain by the value at a date when nothing was held yet,
+    # producing implausibly large return percentages. The frontend shows a
+    # "Since MMM YYYY" label whenever this clamp activates.
+    period_clamped = False
+    if period_key != "all" and first_tx_date and period_start < first_tx_date:
+        period_start = first_tx_date
+        period_clamped = True
+
     period_active = True
 
     # ACB & realized gains
@@ -318,11 +330,20 @@ def build_portfolio(
                 slim = portfolio_value_history(account=bal.account_number)
                 bal.period_start_value_cad = 0.0 if period_key == "all" else _value_history_at(slim, period_start)
                 bal_cur = slim[-1].total_cad if slim else 0.0
-            # Subtract net deposits made DURING the period so new contributions
-            # don't get counted as portfolio return. TRANSFER actions are
-            # internal cash flows that don't add to external capital — they must
-            # be excluded from the denominator and from the cash-flow subtraction.
+            # Modified Dietz: return = (end - start - ΣCF) / (start + Σ(CF × w))
+            # where w_i = (days_remaining_after_CF) / total_days_in_period.
+            # This correctly handles the case where most deposits land near the
+            # start of the period (e.g. 1Y/3Y views including the initial
+            # account funding) — a simple `gain / start_value` formula would
+            # divide a multi-year gain by the tiny start value and overstate
+            # the return.
+            #
+            # TRANSFER actions are internal cash flows and must be excluded
+            # from both numerator and denominator.
+            period_end_date = date.today()
+            total_days = max((period_end_date - period_start).days, 1)
             net_dep_in_period = 0.0
+            weighted_dep_in_period = 0.0
             for t in txs:
                 if t.action not in ("DEPOSIT", "CONTRIBUTION", "WITHDRAWAL"):
                     continue
@@ -332,13 +353,16 @@ def build_portfolio(
                     continue
                 amt = t.net_amount * usd_cad if t.currency == "USD" else t.net_amount
                 net_dep_in_period += amt
+                # Weight = fraction of the period still remaining AFTER this cash flow.
+                # A CF on day 0 carries full weight; one on the last day carries ~0.
+                days_in = max((t.transaction_date - period_start).days, 0)
+                weight = max(0.0, (total_days - days_in) / total_days)
+                weighted_dep_in_period += amt * weight
+
             bal.period_return_cad = round(
                 bal_cur - bal.period_start_value_cad - net_dep_in_period, 2
             )
-            # Denominator: period_start_value if available, else the deposits made
-            # during the period (sensible for an account opened mid-period — and
-            # for the all-time view where period_start_value is always 0).
-            denom = bal.period_start_value_cad if bal.period_start_value_cad > 0 else net_dep_in_period
+            denom = bal.period_start_value_cad + weighted_dep_in_period
             bal.period_return_pct = (
                 round(bal.period_return_cad / denom * 100, 2) if denom > 0 else 0.0
             )
@@ -399,6 +423,7 @@ def build_portfolio(
         active_tab=active.key,
         period=period_key,
         period_start_date=period_start if period_active else None,
+        period_clamped=period_clamped,
     )
 
 

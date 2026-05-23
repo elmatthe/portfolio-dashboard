@@ -14,6 +14,7 @@ import type { AppSettings } from "../types";
 import { useProfile } from "./ProfileContext";
 import { useToast } from "./Toast";
 import { PERIODS } from "./PeriodContext";
+import { ModalPortal } from "./ModalPortal";
 
 const PRESET_COLORS = [
   { name: "Blue",   value: "#3B82F6" },
@@ -346,10 +347,18 @@ export default function SettingsPage({ onClose }: Props) {
 }
 
 function Overlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  // Settings is information-dense (Profile, Tax, TFSA, Display, Data) so we
+  // keep the full-page takeover layout rather than squeezing into a small
+  // centered card. The portal-mount via ModalPortal escapes any ancestor
+  // containing block, which is the actual bug being fixed here. Escape-key
+  // and backdrop-click closers come from ModalPortal too.
   return (
-    <div className="fixed inset-0 z-50 bg-bg overflow-y-auto overscroll-contain" onClick={onClose}>
+    <ModalPortal
+      onClose={onClose}
+      backdropClassName="fixed inset-0 z-50 bg-bg overflow-y-auto overscroll-contain"
+    >
       <div className="min-h-full pb-12" onClick={(e) => e.stopPropagation()}>{children}</div>
-    </div>
+    </ModalPortal>
   );
 }
 
