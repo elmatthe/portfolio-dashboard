@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, Pencil, Plus, Trash2, X } from "lucide-react";
 import clsx from "clsx";
@@ -334,8 +335,29 @@ function AddProfileModal({
     onError: (e: Error) => toast.push(e.message || "Could not create profile", "error"),
   });
 
-  return (
+  // Close on Escape. We're inside a portal mounted on document.body so the
+  // listener doesn't have to dance around the ProfileSwitcher's outside-click
+  // handler.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // Render into document.body via a portal so the modal escapes any ancestor
+  // that has `transform` / `filter` / `will-change` set — those create a
+  // containing block for `position: fixed`, which would otherwise collapse
+  // the modal into the header bar.
+  const modal = (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="add-profile-title"
       className="fixed inset-0 z-50 bg-black/60 overflow-y-auto"
       onClick={onClose}
     >
@@ -344,7 +366,9 @@ function AddProfileModal({
           className="card w-96 max-w-[90vw] max-h-[calc(100vh-120px)] overflow-y-auto"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="text-lg font-semibold mb-4">New profile</div>
+          <div id="add-profile-title" className="text-lg font-semibold mb-4">
+            Create New Profile
+          </div>
 
           <label className="block text-xs text-text-muted uppercase tracking-wider mb-1.5">Name</label>
           <input
@@ -391,4 +415,6 @@ function AddProfileModal({
       </div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }

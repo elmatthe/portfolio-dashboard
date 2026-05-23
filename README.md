@@ -7,7 +7,7 @@ multi-currency exposure, and performance attribution — all on your own
 computer, with nothing sent to the cloud except a daily call to Yahoo Finance
 for prices.
 
-**Current version: 0.5.1** · See [`markdown-instructions/CHANGELOG.md`](markdown-instructions/CHANGELOG.md)
+**Current version: 0.5.2** · See [`markdown-instructions/CHANGELOG.md`](markdown-instructions/CHANGELOG.md)
 for release notes.
 
 ---
@@ -126,7 +126,7 @@ Pre-built installers will be published to the GitHub Releases page once a
 signed build is available. For now, build from source or run from source —
 see *For developers* below.
 
-1. Download `Portfolio Dashboard Setup 0.5.1.exe` from the Releases page.
+1. Download `Portfolio Dashboard Setup 0.5.2.exe` from the Releases page.
 2. Double-click. Windows SmartScreen may warn about an unknown publisher —
    click **More info** → **Run anyway**. (Code-signing is on the roadmap.)
 3. In the NSIS installer:
@@ -281,7 +281,7 @@ This script:
    `winCodeSign-2.6.0.7z` (those require Developer Mode on Windows and
    aren't relevant to win32 builds).
 4. Runs `electron-builder --win`, producing
-   `release\Portfolio Dashboard Setup 0.5.1.exe` (NSIS, x64, ~196 MB).
+   `release\Portfolio Dashboard Setup 0.5.2.exe` (NSIS, x64, ~196 MB).
 
 First run takes 3–5 minutes; subsequent runs are faster.
 

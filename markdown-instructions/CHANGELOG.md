@@ -6,6 +6,40 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.5.2] — 2026-05-22
+
+Hotfix for the "Create New Profile" dialog being squeezed into the top
+header bar instead of opening as a centered overlay.
+
+### Fixed
+
+- **AddProfileModal now portal-mounts to `document.body`.** The modal's
+  outer `<div className="fixed inset-0 ...">` was rendered as a child of
+  the `ProfileSwitcher` root (`<div className="relative" ref={wrapRef}>`)
+  in the banner. Any ancestor on the header path with `transform`,
+  `filter`, or `will-change` (CSS spec rule, not a bug — anything that
+  creates a new containing block) shadowed the viewport and pinned the
+  fixed-positioned modal inside the header's bounds. Switched to
+  `createPortal(modal, document.body)` so the modal escapes whatever
+  containing block the header has, and always positions relative to the
+  viewport.
+- **Escape closes the modal.** The previous version only closed on
+  backdrop click; pressing Escape did nothing. New `useEffect` adds a
+  `keydown` listener bound to `document` that calls `onClose()` on
+  Escape and removes itself on unmount.
+- **Modal title corrected to "Create New Profile"** (was "New profile").
+- ARIA attributes added (`role="dialog"`, `aria-modal="true"`,
+  `aria-labelledby` pointing at the title).
+
+### Unchanged
+
+- Profile-rename input stays inline within the dropdown row — it's an
+  edit-in-place pattern inside a properly-positioned 288px-wide dropdown
+  panel, not inside the header bar, so the same fix wouldn't apply.
+- All v0.5.0/v0.5.1 fixes carry forward.
+
+---
+
 ## [0.5.1] — 2026-05-22
 
 Hotfix for the v0.5.0 Content-Security-Policy header that broke the entire
