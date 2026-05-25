@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
-import { ChevronDown, ChevronRight, Columns3 } from "lucide-react";
+import { useState, useMemo, useCallback } from "react";
+import { ChevronDown, ChevronRight, Columns3, Search, X } from "lucide-react";
 import clsx from "clsx";
 import { api, fmt } from "../api";
 import { useProfile } from "./ProfileContext";
@@ -89,17 +89,63 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
     enabled: !!profile.activeId,
   });
 
+  const sourcesQuery = useQuery({
+    queryKey: ["transaction-sources", profile.activeId],
+    queryFn: () => api.transactionSources(),
+    enabled: !!profile.activeId,
+  });
+
   const [visibleCols, setVisibleCols] = useState<Set<ColumnKey>>(
     () => new Set(COLUMNS.filter((c) => c.defaultVisible).map((c) => c.key))
   );
   const [colMenuOpen, setColMenuOpen] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
+  const currentYear = new Date().getFullYear();
+  const [filterBroker, setFilterBroker] = useState("");
+  const [filterAccountType, setFilterAccountType] = useState("");
+  const [filterCurrency, setFilterCurrency] = useState("");
+  const [filterAction, setFilterAction] = useState("");
+  const [filterDateFrom, setFilterDateFrom] = useState(`${currentYear}-01-01`);
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [searchText, setSearchText] = useState("");
+  const [searchDebounced, setSearchDebounced] = useState("");
+
+  const handleSearchChange = useCallback((val: string) => {
+    setSearchText(val);
+    const timeout = setTimeout(() => setSearchDebounced(val), 300);
+    return () => clearTimeout(timeout);
+  }, []);
+
   const allTxs = txQuery.data ?? [];
+
+  const filteredTxs = useMemo(() => {
+    let txs = allTxs;
+    if (filterBroker) txs = txs.filter((t) => t.broker === filterBroker);
+    if (filterAccountType) txs = txs.filter((t) => t.account_type === filterAccountType);
+    if (filterCurrency) txs = txs.filter((t) => t.currency === filterCurrency);
+    if (filterAction) txs = txs.filter((t) => t.action === filterAction);
+    if (filterDateFrom) {
+      txs = txs.filter((t) => t.transaction_date >= filterDateFrom);
+    }
+    if (filterDateTo) {
+      txs = txs.filter((t) => t.transaction_date <= filterDateTo);
+    }
+    if (searchDebounced) {
+      const q = searchDebounced.toLowerCase();
+      txs = txs.filter(
+        (t) =>
+          (t.resolved_ticker && t.resolved_ticker.toLowerCase().includes(q)) ||
+          (t.raw_symbol && t.raw_symbol.toLowerCase().includes(q)) ||
+          (t.description && t.description.toLowerCase().includes(q))
+      );
+    }
+    return txs;
+  }, [allTxs, filterBroker, filterAccountType, filterCurrency, filterAction, filterDateFrom, filterDateTo, searchDebounced]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, Transaction[]>();
-    for (const tx of allTxs) {
+    for (const tx of filteredTxs) {
       const key = tx.broker;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(tx);
@@ -113,7 +159,22 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
       return (BROKER_LABELS[a] || a).localeCompare(BROKER_LABELS[b] || b);
     });
     return sorted;
-  }, [allTxs]);
+  }, [filteredTxs]);
+
+  const hasActiveFilters =
+    !!filterBroker || !!filterAccountType || !!filterCurrency || !!filterAction ||
+    filterDateFrom !== `${currentYear}-01-01` || !!filterDateTo || !!searchDebounced;
+
+  function clearAllFilters() {
+    setFilterBroker("");
+    setFilterAccountType("");
+    setFilterCurrency("");
+    setFilterAction("");
+    setFilterDateFrom(`${currentYear}-01-01`);
+    setFilterDateTo("");
+    setSearchText("");
+    setSearchDebounced("");
+  }
 
   function toggleGroup(key: string) {
     setCollapsedGroups((prev) => {
@@ -174,6 +235,93 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+
+        <div className="card p-3 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              className="input text-xs py-1 px-2 w-auto"
+              value={filterBroker}
+              onChange={(e) => setFilterBroker(e.target.value)}
+            >
+              <option value="">All Sources</option>
+              {(sourcesQuery.data ?? []).map((b) => (
+                <option key={b} value={b}>{BROKER_LABELS[b] || b}</option>
+              ))}
+              <option value="Manual">Manual</option>
+            </select>
+            <select
+              className="input text-xs py-1 px-2 w-auto"
+              value={filterAccountType}
+              onChange={(e) => setFilterAccountType(e.target.value)}
+            >
+              <option value="">All Types</option>
+              <option value="TFSA">TFSA</option>
+              <option value="RRSP">RRSP</option>
+              <option value="RESP">RESP</option>
+              <option value="Margin">Margin</option>
+              <option value="Non-Registered">Non-Registered</option>
+            </select>
+            <select
+              className="input text-xs py-1 px-2 w-auto"
+              value={filterCurrency}
+              onChange={(e) => setFilterCurrency(e.target.value)}
+            >
+              <option value="">All Currencies</option>
+              <option value="CAD">CAD</option>
+              <option value="USD">USD</option>
+              <option value="GBP">GBP</option>
+              <option value="EUR">EUR</option>
+            </select>
+            <select
+              className="input text-xs py-1 px-2 w-auto"
+              value={filterAction}
+              onChange={(e) => setFilterAction(e.target.value)}
+            >
+              <option value="">All Actions</option>
+              <option value="BUY">Buy</option>
+              <option value="SELL">Sell</option>
+              <option value="DIVIDEND">Dividend</option>
+              <option value="DEPOSIT">Deposit</option>
+              <option value="WITHDRAWAL">Withdrawal</option>
+              <option value="TRANSFER">Transfer</option>
+              <option value="FEE">Fee</option>
+            </select>
+            <input
+              type="date"
+              className="input text-xs py-1 px-2 w-auto"
+              value={filterDateFrom}
+              onChange={(e) => setFilterDateFrom(e.target.value)}
+              title="From date"
+            />
+            <span className="text-text-muted text-xs">to</span>
+            <input
+              type="date"
+              className="input text-xs py-1 px-2 w-auto"
+              value={filterDateTo}
+              onChange={(e) => setFilterDateTo(e.target.value)}
+              title="To date"
+            />
+            <div className="relative flex-1 min-w-[150px]">
+              <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted" />
+              <input
+                type="text"
+                className="input text-xs py-1 pl-6 pr-2 w-full"
+                placeholder="Search ticker or description…"
+                value={searchText}
+                onChange={(e) => handleSearchChange(e.target.value)}
+              />
+            </div>
+            {hasActiveFilters && (
+              <button className="btn-ghost text-xs text-loss" onClick={clearAllFilters}>
+                <X size={12} /> Clear
+              </button>
+            )}
+          </div>
+          <div className="text-xs text-text-muted">
+            {filteredTxs.length} transaction{filteredTxs.length !== 1 ? "s" : ""} shown
+            {hasActiveFilters && ` (${allTxs.length} total)`}
           </div>
         </div>
 
