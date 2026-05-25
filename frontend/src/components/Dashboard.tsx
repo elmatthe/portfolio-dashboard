@@ -23,9 +23,10 @@ import { FlaskConical } from "lucide-react";
 
 interface Props {
   onImportNew: () => void;
+  onNavigate?: (view: "dashboard" | "upload" | "transactions") => void;
 }
 
-export default function Dashboard({ onImportNew }: Props) {
+export default function Dashboard({ onImportNew, onNavigate }: Props) {
   const [activeAccount, setActiveAccount] = useState<string>("all");
   const portfolio = usePortfolio(activeAccount);
   const correlation = useCorrelation(activeAccount);
@@ -72,6 +73,8 @@ export default function Dashboard({ onImportNew }: Props) {
         lastRefreshAt={data.last_price_refresh_at}
         onImportNew={onImportNew}
         holdings={data.holdings}
+        onNavigate={onNavigate}
+        activeView="dashboard"
       />
 
       <div className="max-w-screen-2xl mx-auto px-6 pt-2">

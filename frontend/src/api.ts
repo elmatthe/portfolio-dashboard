@@ -209,6 +209,15 @@ export const api = {
       body: JSON.stringify({ name, color }),
     }),
   tfsaRoom: () => request<TfsaRoomReport>("/api/tfsa/room"),
+
+  // ---------- transactions ----------
+  transactions: (params?: Record<string, string>) => {
+    const qs = params
+      ? "?" + Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&")
+      : "";
+    return request<import("./types").Transaction[]>(`/api/transactions${qs}`);
+  },
+  transactionSources: () => request<string[]>("/api/transactions/sources"),
 };
 
 // Per-currency display symbol. JPY uses the actual yen sign; everything else

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 import Upload from "./components/Upload";
 import Dashboard from "./components/Dashboard";
+import TransactionsPage from "./components/TransactionsPage";
 import { ToastProvider } from "./components/Toast";
 import { ProfileProvider, useProfile } from "./components/ProfileContext";
 import { PeriodProvider } from "./components/PeriodContext";
@@ -19,30 +20,25 @@ export default function App() {
   );
 }
 
+type AppView = "dashboard" | "upload" | "transactions";
+
 function AppInner() {
-  const [forceUpload, setForceUpload] = useState(false);
+  const [view, setView] = useState<AppView>("dashboard");
   const profile = useProfile();
   const qc = useQueryClient();
-  // Re-fetch import-status whenever the active profile changes so we route to
-  // Upload vs Dashboard correctly for the newly selected profile.
   const status = useQuery({
     queryKey: ["import-status", profile.activeId],
     queryFn: api.importStatus,
     enabled: !!profile.activeId,
   });
 
-  // When a new profile is activated, reset the forceUpload flag and refresh
-  // all dashboard queries (already invalidated in the switcher, but redundant
-  // is cheap).
   useEffect(() => {
     if (profile.activeId) {
-      setForceUpload(false);
+      setView("dashboard");
       qc.invalidateQueries({ queryKey: ["import-status"] });
     }
   }, [profile.activeId, qc]);
 
-  // First-load gate. Once we know there's data, we show the dashboard immediately —
-  // no re-upload required. The plan's #2 non-negotiable UX requirement.
   if (profile.isLoading || status.isLoading) {
     return <LoadingSplash />;
   }
@@ -50,17 +46,33 @@ function AppInner() {
     return <BackendError onRetry={() => status.refetch()} />;
   }
 
-  const hasData = !!status.data?.has_data && !forceUpload;
+  const hasData = !!status.data?.has_data && view !== "upload";
 
-  return hasData ? (
-    <Dashboard onImportNew={() => setForceUpload(true)} />
-  ) : (
-    <Upload
-      onSuccess={() => {
-        setForceUpload(false);
-        status.refetch();
-      }}
-      onCancel={status.data?.has_data ? () => setForceUpload(false) : undefined}
+  if (!hasData) {
+    return (
+      <Upload
+        onSuccess={() => {
+          setView("dashboard");
+          status.refetch();
+        }}
+        onCancel={status.data?.has_data ? () => setView("dashboard") : undefined}
+      />
+    );
+  }
+
+  if (view === "transactions") {
+    return (
+      <TransactionsPage
+        onNavigate={setView}
+        onImportNew={() => setView("upload")}
+      />
+    );
+  }
+
+  return (
+    <Dashboard
+      onImportNew={() => setView("upload")}
+      onNavigate={setView}
     />
   );
 }

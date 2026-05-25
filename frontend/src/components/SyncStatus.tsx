@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Download, FileUp, RefreshCw, FileSpreadsheet, AlertTriangle, Settings, FileText } from "lucide-react";
+import { Check, Download, FileUp, RefreshCw, FileSpreadsheet, AlertTriangle, Settings, FileText, List } from "lucide-react";
 import clsx from "clsx";
 import { api, fmt } from "../api";
 import type { ImportInfo, PriceRefreshResult } from "../types";
@@ -18,6 +18,8 @@ interface Props {
   lastRefreshAt: string | null;
   onImportNew: () => void;
   holdings: Holding[];
+  onNavigate?: (view: "dashboard" | "upload" | "transactions") => void;
+  activeView?: string;
 }
 
 /**
@@ -32,7 +34,7 @@ function useTicker(intervalMs: number): void {
   }, [intervalMs]);
 }
 
-export default function SyncStatus({ lastImport, lastRefreshAt, onImportNew, holdings }: Props) {
+export default function SyncStatus({ lastImport, lastRefreshAt, onImportNew, holdings, onNavigate, activeView }: Props) {
   const qc = useQueryClient();
   const toast = useToast();
   const { period } = usePeriod();
@@ -112,6 +114,14 @@ export default function SyncStatus({ lastImport, lastRefreshAt, onImportNew, hol
             justRefreshed={justRefreshed}
             onClick={() => refresh.mutate()}
           />
+          {onNavigate && (
+            <button
+              className={clsx("btn-ghost", activeView === "transactions" && "bg-accent/20 text-accent")}
+              onClick={() => onNavigate("transactions")}
+            >
+              <List size={14} /> Transactions
+            </button>
+          )}
           <button className="btn-ghost" onClick={onImportNew}>
             <FileUp size={14} /> Import new export
           </button>
