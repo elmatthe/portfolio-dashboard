@@ -367,6 +367,16 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
 
         {txQuery.isSuccess && (
           <div className="space-y-4">
+            {hasActiveFilters && filteredTxs.length === 0 && (
+              <div className="card text-center py-8">
+                <p className="text-text-muted text-sm mb-3">
+                  No transactions match the current filters. Try clearing some filters.
+                </p>
+                <button className="btn-primary text-sm" onClick={clearAllFilters}>
+                  Clear all filters
+                </button>
+              </div>
+            )}
             {grouped.map(([broker, txs]) => (
               <SourceGroup
                 key={broker}
@@ -375,6 +385,7 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
                 collapsed={collapsedGroups.has(broker)}
                 onToggle={() => toggleGroup(broker)}
                 columns={activeCols}
+                hasActiveFilters={hasActiveFilters}
               />
             ))}
           </div>
@@ -390,12 +401,14 @@ function SourceGroup({
   collapsed,
   onToggle,
   columns,
+  hasActiveFilters,
 }: {
   broker: string;
   transactions: Transaction[];
   collapsed: boolean;
   onToggle: () => void;
   columns: ColumnDef[];
+  hasActiveFilters: boolean;
 }) {
   const label = BROKER_LABELS[broker] || broker;
   const isManual = broker === "Manual";
@@ -451,7 +464,9 @@ function SourceGroup({
             </div>
           ) : isEmpty ? (
             <div className="text-text-muted text-sm py-4">
-              No {label} transactions imported yet.
+              {hasActiveFilters
+                ? `No ${label} transactions match the current filters.`
+                : `No ${label} transactions imported yet.`}
             </div>
           ) : (
             <div className="overflow-x-auto">
