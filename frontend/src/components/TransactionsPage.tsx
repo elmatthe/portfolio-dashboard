@@ -59,6 +59,37 @@ const COLUMNS: ColumnDef[] = [
   { key: "settlement", label: "Settlement Date", defaultVisible: false },
 ];
 
+type SortDir = "asc" | "desc";
+type SortableKey = "date" | "ticker" | "action" | "net" | "cad_eq";
+
+const SORTABLE_COLUMNS: Set<ColumnKey> = new Set(["date", "ticker", "action", "net", "cad_eq"]);
+
+function sortTransactions(txs: Transaction[], sortKey: SortableKey, dir: SortDir): Transaction[] {
+  const sorted = [...txs];
+  sorted.sort((a, b) => {
+    let cmp = 0;
+    switch (sortKey) {
+      case "date":
+        cmp = a.transaction_date.localeCompare(b.transaction_date);
+        break;
+      case "ticker":
+        cmp = (a.resolved_ticker || a.raw_symbol || "").localeCompare(b.resolved_ticker || b.raw_symbol || "");
+        break;
+      case "action":
+        cmp = a.action.localeCompare(b.action);
+        break;
+      case "net":
+        cmp = Math.abs(a.net_amount) - Math.abs(b.net_amount);
+        break;
+      case "cad_eq":
+        cmp = Math.abs(a.net_cad ?? 0) - Math.abs(b.net_cad ?? 0);
+        break;
+    }
+    return dir === "asc" ? cmp : -cmp;
+  });
+  return sorted;
+}
+
 function getCellValue(tx: Transaction, col: ColumnKey): string {
   switch (col) {
     case "date": return fmt.date(tx.transaction_date);
@@ -370,6 +401,25 @@ function SourceGroup({
   const isManual = broker === "Manual";
   const isEmpty = transactions.length === 0;
 
+  const [sortKey, setSortKey] = useState<SortableKey>("date");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  const sortedTxs = useMemo(
+    () => (isEmpty ? transactions : sortTransactions(transactions, sortKey, sortDir)),
+    [transactions, sortKey, sortDir, isEmpty]
+  );
+
+  function handleSort(col: ColumnKey) {
+    if (!SORTABLE_COLUMNS.has(col)) return;
+    const key = col as SortableKey;
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "date" ? "desc" : "asc");
+    }
+  }
+
   return (
     <div className="card overflow-hidden">
       <button
@@ -407,21 +457,30 @@ function SourceGroup({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-text-muted text-left">
-                    {columns.map((col) => (
-                      <th
-                        key={col.key}
-                        className={clsx(
-                          "pb-2 px-2 font-medium text-xs whitespace-nowrap",
-                          col.align === "right" && "text-right"
-                        )}
-                      >
-                        {col.label}
-                      </th>
-                    ))}
+                    {columns.map((col) => {
+                      const isSortable = SORTABLE_COLUMNS.has(col.key);
+                      const isActive = sortKey === col.key;
+                      return (
+                        <th
+                          key={col.key}
+                          className={clsx(
+                            "pb-2 px-2 font-medium text-xs whitespace-nowrap select-none",
+                            col.align === "right" && "text-right",
+                            isSortable && "cursor-pointer hover:text-text-primary"
+                          )}
+                          onClick={() => handleSort(col.key)}
+                        >
+                          {col.label}
+                          {isActive && (
+                            <span className="ml-1">{sortDir === "asc" ? "↑" : "↓"}</span>
+                          )}
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {transactions.map((tx) => (
+                  {sortedTxs.map((tx) => (
                     <tr key={tx.hash} className="hover:bg-border/10 transition-colors">
                       {columns.map((col) => (
                         <td
