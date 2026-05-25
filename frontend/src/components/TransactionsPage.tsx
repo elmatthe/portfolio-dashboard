@@ -1,12 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo, useCallback } from "react";
-import { ChevronDown, ChevronRight, Columns3, Search, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Columns3, Search, X, Plus } from "lucide-react";
 import clsx from "clsx";
 import { api, fmt } from "../api";
 import { useProfile } from "./ProfileContext";
 import { usePortfolio } from "../hooks/usePortfolio";
 import { useAutoRefreshPrices } from "../hooks/useAutoRefreshPrices";
 import SyncStatus from "./SyncStatus";
+import { ModalPortal } from "./ModalPortal";
 import type { Transaction, Broker } from "../types";
 
 interface Props {
@@ -227,6 +228,8 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
 
   const activeCols = COLUMNS.filter((c) => visibleCols.has(c.key));
 
+  const [addModalOpen, setAddModalOpen] = useState(false);
+
   return (
     <div className="min-h-screen">
       <SyncStatus
@@ -240,7 +243,15 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
 
       <main className="max-w-screen-2xl mx-auto p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold">Transactions</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-semibold">Transactions</h1>
+            <button
+              className="btn-primary text-sm"
+              onClick={() => setAddModalOpen(true)}
+            >
+              <Plus size={14} /> Add Transaction
+            </button>
+          </div>
           <div className="relative">
             <button
               className="btn-ghost text-xs"
@@ -386,11 +397,33 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
                 onToggle={() => toggleGroup(broker)}
                 columns={activeCols}
                 hasActiveFilters={hasActiveFilters}
+                onAddTransaction={() => setAddModalOpen(true)}
               />
             ))}
           </div>
         )}
       </main>
+
+      {addModalOpen && (
+        <ModalPortal onClose={() => setAddModalOpen(false)} labelledBy="add-tx-title">
+          <div
+            className="max-w-lg mx-auto mt-20 bg-surface rounded-xl shadow-2xl p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 id="add-tx-title" className="text-lg font-semibold">Add Transaction</h2>
+              <button
+                className="text-text-muted hover:text-text-primary p-1"
+                onClick={() => setAddModalOpen(false)}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="text-text-muted text-sm">Form coming in sub-task 4</div>
+          </div>
+        </ModalPortal>
+      )}
     </div>
   );
 }
@@ -402,6 +435,7 @@ function SourceGroup({
   onToggle,
   columns,
   hasActiveFilters,
+  onAddTransaction,
 }: {
   broker: string;
   transactions: Transaction[];
@@ -409,6 +443,7 @@ function SourceGroup({
   onToggle: () => void;
   columns: ColumnDef[];
   hasActiveFilters: boolean;
+  onAddTransaction?: () => void;
 }) {
   const label = BROKER_LABELS[broker] || broker;
   const isManual = broker === "Manual";
@@ -457,6 +492,7 @@ function SourceGroup({
                 className="text-accent font-medium hover:underline focus:outline-none focus:ring-1 focus:ring-accent rounded px-0.5"
                 tabIndex={0}
                 type="button"
+                onClick={(e) => { e.stopPropagation(); onAddTransaction?.(); }}
               >
                 Add Transaction
               </button>{" "}
