@@ -401,6 +401,7 @@ function SourceGroup({
   const isManual = broker === "Manual";
   const isEmpty = transactions.length === 0;
 
+  const [expandedHash, setExpandedHash] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortableKey>("date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
@@ -481,22 +482,13 @@ function SourceGroup({
                 </thead>
                 <tbody className="divide-y divide-border">
                   {sortedTxs.map((tx) => (
-                    <tr key={tx.hash} className="hover:bg-border/10 transition-colors">
-                      {columns.map((col) => (
-                        <td
-                          key={col.key}
-                          className={clsx(
-                            "py-2 px-2 whitespace-nowrap",
-                            col.align === "right" && "text-right num",
-                            col.key === "action" && actionColor(tx.action),
-                            col.key === "net" && (tx.net_amount >= 0 ? "text-gain" : "text-loss"),
-                            col.key === "cad_eq" && tx.net_cad != null && (tx.net_cad >= 0 ? "text-gain" : "text-loss"),
-                          )}
-                        >
-                          {getCellValue(tx, col.key)}
-                        </td>
-                      ))}
-                    </tr>
+                    <TxRow
+                      key={tx.hash}
+                      tx={tx}
+                      columns={columns}
+                      expanded={expandedHash === tx.hash}
+                      onToggle={() => setExpandedHash(expandedHash === tx.hash ? null : tx.hash)}
+                    />
                   ))}
                 </tbody>
               </table>
@@ -504,6 +496,93 @@ function SourceGroup({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function TxRow({
+  tx,
+  columns,
+  expanded,
+  onToggle,
+}: {
+  tx: Transaction;
+  columns: ColumnDef[];
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <>
+      <tr
+        className={clsx(
+          "cursor-pointer transition-colors",
+          expanded ? "bg-accent/5" : "hover:bg-border/10"
+        )}
+        onClick={onToggle}
+      >
+        {columns.map((col) => (
+          <td
+            key={col.key}
+            className={clsx(
+              "py-2 px-2 whitespace-nowrap",
+              col.align === "right" && "text-right num",
+              col.key === "action" && actionColor(tx.action),
+              col.key === "net" && (tx.net_amount >= 0 ? "text-gain" : "text-loss"),
+              col.key === "cad_eq" && tx.net_cad != null && (tx.net_cad >= 0 ? "text-gain" : "text-loss"),
+            )}
+          >
+            {getCellValue(tx, col.key)}
+          </td>
+        ))}
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={columns.length} className="p-0">
+            <TxDetailPanel tx={tx} />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function TxDetailPanel({ tx }: { tx: Transaction }) {
+  const details: [string, string | null | undefined][] = [
+    ["Transaction Date", tx.transaction_date],
+    ["Settlement Date", tx.settlement_date],
+    ["Action", tx.action],
+    ["Ticker (resolved)", tx.resolved_ticker],
+    ["Raw Symbol", tx.raw_symbol],
+    ["Description", tx.description],
+    ["Quantity", tx.quantity?.toString()],
+    ["Price", tx.price?.toString()],
+    ["Gross Amount", tx.gross_amount?.toString()],
+    ["Commission", tx.commission?.toString()],
+    ["Net Amount", fmt.moneyShort(tx.net_amount)],
+    ["Currency", tx.currency],
+    ["FX Rate to CAD", tx.fx_rate_to_cad?.toFixed(4)],
+    ["Net CAD", tx.net_cad != null ? fmt.moneyShort(tx.net_cad) : null],
+    ["Account Number", tx.account_number],
+    ["Account Type", tx.account_type],
+    ["Broker", BROKER_LABELS[tx.broker] || tx.broker],
+    ["ISIN", tx.isin],
+    ["Exchange", tx.exchange],
+    ["Reference ID", tx.reference_id],
+    ["Hash", tx.hash],
+  ];
+
+  return (
+    <div className="bg-surface/50 border-t border-border/50 px-6 py-3 ml-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-1.5 text-xs">
+        {details.map(([label, value]) =>
+          value != null && value !== "" ? (
+            <div key={label}>
+              <span className="text-text-muted">{label}:</span>{" "}
+              <span className="font-medium">{value}</span>
+            </div>
+          ) : null
+        )}
+      </div>
     </div>
   );
 }
