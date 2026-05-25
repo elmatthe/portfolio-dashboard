@@ -239,13 +239,15 @@ function SourceGroup({
         <div className="px-4 pb-4">
           {isManual && isEmpty ? (
             <div className="text-text-muted text-sm py-4">
-              No manual transactions entered yet.{" "}
-              <span
+              No manual transactions entered yet. Use{" "}
+              <button
                 data-testid="add-transaction-empty-cta"
-                className="text-accent cursor-pointer hover:underline"
+                className="text-accent font-medium hover:underline focus:outline-none focus:ring-1 focus:ring-accent rounded px-0.5"
+                tabIndex={0}
+                type="button"
               >
                 Add Transaction
-              </span>{" "}
+              </button>{" "}
               to record trades, dividends, or deposits by hand.
             </div>
           ) : isEmpty ? (
