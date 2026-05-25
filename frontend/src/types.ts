@@ -12,7 +12,8 @@ export type Broker =
   | "nationalbank"
   | "fidelity"
   | "hsbc"
-  | "generic";
+  | "generic"
+  | "Manual";
 
 export type Action =
   | "BUY"
@@ -78,6 +79,9 @@ export interface Transaction {
   isin?: string | null;
   exchange?: string | null;
   reference_id?: string | null;
+  is_manual?: boolean;
+  notes?: string | null;
+  source_file?: string | null;
 }
 
 export interface ResolvedTicker {

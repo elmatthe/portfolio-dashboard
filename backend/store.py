@@ -72,6 +72,9 @@ def upsert_transactions(transactions: list[Transaction]) -> UpsertResult:
             "isin": t.isin,
             "exchange": t.exchange,
             "reference_id": t.reference_id,
+            "is_manual": 1 if t.is_manual else 0,
+            "notes": t.notes,
+            "source_file": t.source_file,
         }
         for t in transactions
     ]
@@ -146,6 +149,9 @@ def _row_to_transaction(r: dict[str, Any]) -> Transaction:
         isin=r.get("isin"),
         exchange=r.get("exchange"),
         reference_id=r.get("reference_id"),
+        is_manual=bool(r.get("is_manual", 0)),
+        notes=r.get("notes"),
+        source_file=r.get("source_file"),
     )
 
 
@@ -420,6 +426,149 @@ def save_settings(s: AppSettings) -> None:
     set_state("default_currency_view", s.default_currency_view)
     set_state("color_theme", s.color_theme)
     set_state("price_refresh_interval_min", str(s.price_refresh_interval_min))
+
+
+# ---------- manual entry CRUD ----------
+
+def insert_manual_transaction(tx: Transaction) -> Transaction:
+    """Insert a manual transaction via the shared dedup pipeline.
+
+    FX must already be populated on `tx` by the caller (the API layer calls
+    FXService before passing the transaction here). Sets broker=Manual,
+    is_manual=True, source_file=manual-entry.
+
+    Raises ValueError if a sell exceeds held quantity for that (ticker, account_type).
+    Returns the inserted Transaction with its DB-assigned id in reference_id.
+    """
+    from backend import acb
+    from backend.fx import get_fx_service
+
+    tx.broker = "Manual"
+    tx.is_manual = True
+    tx.source_file = "manual-entry"
+
+    if tx.action == "SELL" and tx.resolved_ticker:
+        held = _held_quantity(tx.resolved_ticker, tx.account_type)
+        if tx.quantity > held + 1e-9:
+            raise ValueError(
+                f"Sell quantity ({tx.quantity}) exceeds held position "
+                f"({held}) for {tx.resolved_ticker} in {tx.account_type}"
+            )
+
+    fx = get_fx_service()
+    fx.populate_transaction(tx)
+
+    result = upsert_transactions([tx])
+    if result.inserted == 0:
+        raise ValueError("Duplicate transaction — matches an existing record")
+
+    return tx
+
+
+def update_manual_transaction(tx_hash: str, updates: dict) -> Transaction:
+    """Update a manual transaction. Raises ValueError if not manual."""
+    from backend.fx import get_fx_service
+
+    engine = db.get_engine()
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(db.transactions).where(db.transactions.c.hash == tx_hash)
+        ).mappings().first()
+    if row is None:
+        raise ValueError("Transaction not found")
+    if not row.get("is_manual"):
+        raise ValueError("Cannot edit imported transactions")
+
+    allowed_fields = {
+        "transaction_date", "settlement_date", "action", "raw_symbol",
+        "resolved_ticker", "description", "quantity", "price",
+        "gross_amount", "commission", "net_amount", "currency",
+        "account_type", "account_number", "isin", "notes",
+    }
+    set_vals = {k: v for k, v in updates.items() if k in allowed_fields}
+    if "transaction_date" in set_vals and isinstance(set_vals["transaction_date"], str):
+        pass
+    if "settlement_date" in set_vals and set_vals["settlement_date"] is not None:
+        pass
+
+    with engine.begin() as conn:
+        conn.execute(
+            update(db.transactions)
+            .where(db.transactions.c.hash == tx_hash)
+            .values(**set_vals)
+        )
+
+    with engine.connect() as conn:
+        updated_row = conn.execute(
+            select(db.transactions).where(db.transactions.c.hash == tx_hash)
+        ).mappings().first()
+
+    tx = _row_to_transaction(updated_row)
+    fx = get_fx_service()
+    fx.populate_transaction(tx)
+
+    with engine.begin() as conn:
+        conn.execute(
+            update(db.transactions)
+            .where(db.transactions.c.hash == tx_hash)
+            .values(
+                fx_rate_to_cad=tx.fx_rate_to_cad,
+                net_cad=tx.net_cad,
+            )
+        )
+
+    return tx
+
+
+def delete_manual_transaction(tx_hash: str) -> None:
+    """Delete a manual transaction. Raises ValueError if not manual or not found."""
+    engine = db.get_engine()
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(db.transactions).where(db.transactions.c.hash == tx_hash)
+        ).mappings().first()
+    if row is None:
+        raise ValueError("Transaction not found")
+    if not row.get("is_manual"):
+        raise ValueError("Cannot delete imported transactions")
+
+    with engine.begin() as conn:
+        conn.execute(
+            delete(db.transactions).where(db.transactions.c.hash == tx_hash)
+        )
+
+
+def get_transaction_by_hash(tx_hash: str) -> Transaction | None:
+    """Fetch a single transaction by hash."""
+    engine = db.get_engine()
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(db.transactions).where(db.transactions.c.hash == tx_hash)
+        ).mappings().first()
+    if row is None:
+        return None
+    return _row_to_transaction(row)
+
+
+def get_held_quantity(ticker: str, account_type: str) -> float:
+    """Public accessor for held quantity of a ticker in an account type."""
+    return _held_quantity(ticker, account_type)
+
+
+def _held_quantity(ticker: str, account_type: str) -> float:
+    """Sum of bought minus sold for a (ticker, account_type) pair."""
+    txs = get_all_transactions()
+    held = 0.0
+    for t in txs:
+        if (t.resolved_ticker or t.raw_symbol) != ticker:
+            continue
+        if t.account_type != account_type:
+            continue
+        if t.action == "BUY":
+            held += t.quantity
+        elif t.action == "SELL":
+            held -= t.quantity
+    return max(held, 0.0)
 
 
 # ---------- destructive (tests / "reset" feature) ----------

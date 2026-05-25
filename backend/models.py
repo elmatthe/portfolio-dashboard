@@ -25,6 +25,7 @@ Broker = Literal[
     "fidelity",
     "hsbc",
     "generic",
+    "Manual",
 ]
 
 Action = Literal[
@@ -99,6 +100,10 @@ class Transaction(BaseModel):
     isin: str | None = None              # international security identifier (HSBC, some IB rows)
     exchange: str | None = None          # TSX, NYSE, LSE, EURONEXT, TSE, ASX, etc.
     reference_id: str | None = None      # broker confirmation / order number
+    # ---- v0.6.0 manual entry fields ----
+    is_manual: bool = False
+    notes: str | None = None
+    source_file: str | None = None
 
 
 # ---------- Ticker resolution ----------

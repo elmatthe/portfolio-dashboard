@@ -54,6 +54,10 @@ transactions = Table(
     Column("isin", String, nullable=True),
     Column("exchange", String, nullable=True),
     Column("reference_id", String, nullable=True),
+    # ---- v0.6.0 manual entry fields ----
+    Column("is_manual", Integer, nullable=False, default=0),
+    Column("notes", String, nullable=True),
+    Column("source_file", String, nullable=True),
 )
 
 
@@ -238,6 +242,9 @@ def _migrate_schema(engine: Engine) -> None:
             ("isin", "TEXT"),
             ("exchange", "TEXT"),
             ("reference_id", "TEXT"),
+            ("is_manual", "INTEGER DEFAULT 0"),
+            ("notes", "TEXT"),
+            ("source_file", "TEXT"),
         ],
     }
     with engine.begin() as conn:
