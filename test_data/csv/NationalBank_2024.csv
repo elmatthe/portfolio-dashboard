@@ -1,0 +1,25 @@
+Banque Nationale Courtage Direct / National Bank Direct Brokerage
+Compte / Account: NB-123456
+Période / Period: 2024
+
+Date d'exécution / Execution Date,Type d'opération / Transaction Type,Titre / Symbol,Description,Quantité / Qty,Prix / Price,Devise / Currency,Montant brut / Gross,Commission ($),Montant net / Net,Taux de change / FX Rate,Équivalent CAD / CAD Equiv,Type de compte / Account Type
+2024-01-10,Buy,VEQT.TO,Vanguard All-Equity ETF,55,38.35,CAD,-2109.25,6.95,-2116.20,1.0000,-2116.20,TFSA
+2024-01-24,Buy,ZAG.TO,BMO Aggregate Bond ETF,100,14.85,CAD,-1485.00,6.95,-1491.95,1.0000,-1491.95,RRSP
+2024-02-07,Deposit,,Direct Deposit,,,CAD,3000.00,0.00,3000.00,1.0000,3000.00,TFSA
+2024-02-20,Buy,NA.TO,National Bank of Canada,25,102.50,CAD,-2562.50,6.95,-2569.45,1.0000,-2569.45,Margin
+2024-03-01,Dividend,VEQT.TO,Vanguard All-Equity ETF,,,CAD,24.75,0.00,24.75,1.0000,24.75,TFSA
+2024-03-18,Buy,XIC.TO,iShares Core S&P/TSX Capped,65,32.40,CAD,-2106.00,6.95,-2112.95,1.0000,-2112.95,TFSA
+2024-04-05,Dividend,ZAG.TO,BMO Aggregate Bond ETF,,,CAD,5.93,0.00,5.93,1.0000,5.93,RRSP
+2024-04-19,Sell,VEQT.TO,Vanguard All-Equity ETF,20,39.10,CAD,782.00,6.95,775.05,1.0000,775.05,TFSA
+2024-05-01,Dividend,NA.TO,National Bank of Canada,,,CAD,26.50,0.00,26.50,1.0000,26.50,Margin
+2024-05-15,Buy,VEQT.TO,Vanguard All-Equity ETF,30,39.50,CAD,-1185.00,6.95,-1191.95,1.0000,-1191.95,TFSA
+2024-06-01,Dividend,XIC.TO,iShares Core S&P/TSX Capped,,,CAD,14.30,0.00,14.30,1.0000,14.30,TFSA
+2024-06-20,Sell,ZAG.TO,BMO Aggregate Bond ETF,40,15.10,CAD,604.00,6.95,597.05,1.0000,597.05,RRSP
+2024-07-01,Deposit,,Direct Deposit,,,CAD,2000.00,0.00,2000.00,1.0000,2000.00,RRSP
+2024-07-18,Buy,BNS.TO,Bank of Nova Scotia,30,65.80,CAD,-1974.00,6.95,-1980.95,1.0000,-1980.95,RRSP
+2024-08-01,Dividend,VEQT.TO,Vanguard All-Equity ETF,,,CAD,29.25,0.00,29.25,1.0000,29.25,TFSA
+2024-08-15,Sell,NA.TO,National Bank of Canada,10,108.20,CAD,1082.00,6.95,1075.05,1.0000,1075.05,Margin
+2024-09-01,Dividend,BNS.TO,Bank of Nova Scotia,,,CAD,28.50,0.00,28.50,1.0000,28.50,RRSP
+2024-09-20,Buy,VEQT.TO,Vanguard All-Equity ETF,20,40.20,CAD,-804.00,6.95,-810.95,1.0000,-810.95,TFSA
+2024-10-01,Dividend,XIC.TO,iShares Core S&P/TSX Capped,,,CAD,15.60,0.00,15.60,1.0000,15.60,TFSA
+2024-10-15,Buy,ZAG.TO,BMO Aggregate Bond ETF,50,14.95,CAD,-747.50,6.95,-754.45,1.0000,-754.45,RRSP

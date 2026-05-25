@@ -1,0 +1,21 @@
+Date,Activity,Symbol,Description,Quantity,Price,Amount,Currency,Account,Account Type
+2024-01-15,buy,VEQT.TO,Vanguard All-Equity ETF Portfolio,50,38.50,-1925.00,CAD,TFSA-1234,TFSA
+2024-01-15,buy,XEQT.TO,iShares Core Equity ETF Portfolio,30,28.75,-862.50,CAD,TFSA-1234,TFSA
+2024-02-01,deposit,,Direct Deposit,,,2000.00,CAD,TFSA-1234,TFSA
+2024-02-15,buy,VEQT.TO,Vanguard All-Equity ETF Portfolio,25,39.10,-977.50,CAD,TFSA-1234,TFSA
+2024-03-01,dividend,VEQT.TO,Vanguard All-Equity ETF Portfolio,,,28.50,CAD,TFSA-1234,TFSA
+2024-03-15,buy,AAPL,Apple Inc,10,172.50,-1725.00,USD,Personal-5678,Non-Registered
+2024-04-01,deposit,,Direct Deposit,,,3000.00,CAD,Personal-5678,Non-Registered
+2024-04-15,buy,VFV.TO,Vanguard S&P 500 Index ETF,40,105.20,-4208.00,CAD,Personal-5678,Non-Registered
+2024-05-01,dividend,AAPL,Apple Inc,,,2.40,USD,Personal-5678,Non-Registered
+2024-05-15,sell,XEQT.TO,iShares Core Equity ETF Portfolio,15,29.80,447.00,CAD,TFSA-1234,TFSA
+2024-06-01,dividend,VEQT.TO,Vanguard All-Equity ETF Portfolio,,,31.25,CAD,TFSA-1234,TFSA
+2024-06-15,buy,TD.TO,Toronto-Dominion Bank,20,82.30,-1646.00,CAD,RRSP-9012,RRSP
+2024-07-01,deposit,,Direct Deposit,,,1500.00,CAD,RRSP-9012,RRSP
+2024-07-15,buy,ENB.TO,Enbridge Inc,35,48.90,-1711.50,CAD,RRSP-9012,RRSP
+2024-08-01,dividend,TD.TO,Toronto-Dominion Bank,,,18.00,CAD,RRSP-9012,RRSP
+2024-08-15,sell,AAPL,Apple Inc,5,225.40,1127.00,USD,Personal-5678,Non-Registered
+2024-09-01,dividend,ENB.TO,Enbridge Inc,,,30.10,CAD,RRSP-9012,RRSP
+2024-09-15,buy,MSFT,Microsoft Corp,8,415.20,-3321.60,USD,Personal-5678,Non-Registered
+2024-10-01,dividend,VFV.TO,Vanguard S&P 500 Index ETF,,,22.80,CAD,Personal-5678,Non-Registered
+2024-10-15,buy,VEQT.TO,Vanguard All-Equity ETF Portfolio,20,40.25,-805.00,CAD,TFSA-1234,TFSA

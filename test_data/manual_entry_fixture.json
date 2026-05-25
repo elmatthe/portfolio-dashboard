@@ -1,0 +1,76 @@
+[
+  {
+    "transaction_date": "2024-03-10",
+    "action": "BUY",
+    "ticker": "VEQT.TO",
+    "quantity": 50,
+    "price": 39.25,
+    "currency": "CAD",
+    "commission": 0,
+    "account_type": "TFSA",
+    "account_number": "manual-tfsa-1",
+    "notes": "Synthetic manual buy for testing"
+  },
+  {
+    "transaction_date": "2024-04-15",
+    "action": "BUY",
+    "ticker": "AAPL",
+    "quantity": 10,
+    "price": 195.50,
+    "currency": "USD",
+    "commission": 0,
+    "account_type": "Margin",
+    "account_number": "manual-margin-1",
+    "notes": "Synthetic manual USD buy for FX testing"
+  },
+  {
+    "transaction_date": "2024-05-20",
+    "action": "SELL",
+    "ticker": "VEQT.TO",
+    "quantity": 20,
+    "price": 40.50,
+    "currency": "CAD",
+    "commission": 0,
+    "account_type": "TFSA",
+    "account_number": "manual-tfsa-1",
+    "notes": "Synthetic manual sell for ACB/RealizedGain testing"
+  },
+  {
+    "transaction_date": "2024-06-01",
+    "action": "DIVIDEND",
+    "ticker": "VEQT.TO",
+    "quantity": 0,
+    "price": 0,
+    "currency": "CAD",
+    "commission": 0,
+    "net_amount": 15.75,
+    "account_type": "TFSA",
+    "account_number": "manual-tfsa-1",
+    "notes": "Synthetic manual dividend"
+  },
+  {
+    "transaction_date": "2024-07-10",
+    "action": "DEPOSIT",
+    "ticker": null,
+    "quantity": 0,
+    "price": 0,
+    "currency": "CAD",
+    "commission": 0,
+    "net_amount": 2000.00,
+    "account_type": "TFSA",
+    "account_number": "manual-tfsa-1",
+    "notes": "Synthetic manual deposit"
+  },
+  {
+    "transaction_date": "2024-08-15",
+    "action": "SELL",
+    "ticker": "AAPL",
+    "quantity": 5,
+    "price": 225.30,
+    "currency": "USD",
+    "commission": 0,
+    "account_type": "Margin",
+    "account_number": "manual-margin-1",
+    "notes": "Synthetic manual USD sell for capital gains testing"
+  }
+]

@@ -1,0 +1,25 @@
+CIBC Investor's Edge
+Account Number: 789-45612
+Period: 2024
+
+Trade Date,Transaction Type,Security,Security Description,Shares/Units,Trade Price,Traded Currency,Trade Amount,Commission & Fees,Net Settlement,FX Rate,CAD Equivalent,Registered Account
+2024-01-08,Buy,VEQT.TO,Vanguard All-Equity ETF,80,38.40,CAD,-3072.00,6.95,-3078.95,1.0000,-3078.95,TFSA
+2024-01-20,Buy,MSFT,Microsoft Corp,5,390.50,USD,-1952.50,6.95,-1959.45,1.3480,-2641.34,Non-Registered
+2024-02-10,Deposit,,Direct Deposit,,,CAD,4000.00,0.00,4000.00,1.0000,4000.00,TFSA
+2024-02-28,Buy,XQQ.TO,iShares NASDAQ 100 ETF,45,35.60,CAD,-1602.00,6.95,-1608.95,1.0000,-1608.95,TFSA
+2024-03-05,Dividend,VEQT.TO,Vanguard All-Equity ETF,,,CAD,36.00,0.00,36.00,1.0000,36.00,TFSA
+2024-03-20,Buy,GOOGL,Alphabet Inc Class A,8,142.80,USD,-1142.40,6.95,-1149.35,1.3550,-1557.37,Non-Registered
+2024-04-05,Dividend,MSFT,Microsoft Corp,,,USD,3.75,0.00,3.75,1.3610,5.10,Non-Registered
+2024-04-18,Sell,XQQ.TO,iShares NASDAQ 100 ETF,20,36.90,CAD,738.00,6.95,731.05,1.0000,731.05,TFSA
+2024-05-01,Buy,BNS.TO,Bank of Nova Scotia,35,65.20,CAD,-2282.00,6.95,-2288.95,1.0000,-2288.95,RRSP
+2024-05-15,Dividend,GOOGL,Alphabet Inc Class A,,,USD,1.60,0.00,1.60,1.3690,2.19,Non-Registered
+2024-06-01,Dividend,VEQT.TO,Vanguard All-Equity ETF,,,CAD,38.40,0.00,38.40,1.0000,38.40,TFSA
+2024-06-15,Buy,CM.TO,CIBC,20,62.80,CAD,-1256.00,6.95,-1262.95,1.0000,-1262.95,RRSP
+2024-07-10,Sell,MSFT,Microsoft Corp,3,445.20,USD,1335.60,6.95,1328.65,1.3750,1826.89,Non-Registered
+2024-07-25,Deposit,,Direct Deposit,,,CAD,2500.00,0.00,2500.00,1.0000,2500.00,RRSP
+2024-08-01,Dividend,BNS.TO,Bank of Nova Scotia,,,CAD,36.75,0.00,36.75,1.0000,36.75,RRSP
+2024-08-15,Buy,VEQT.TO,Vanguard All-Equity ETF,25,39.80,CAD,-995.00,6.95,-1001.95,1.0000,-1001.95,TFSA
+2024-09-01,Dividend,CM.TO,CIBC,,,CAD,17.60,0.00,17.60,1.0000,17.60,RRSP
+2024-09-20,Sell,GOOGL,Alphabet Inc Class A,4,165.30,USD,661.20,6.95,654.25,1.3580,888.47,Non-Registered
+2024-10-01,Dividend,VEQT.TO,Vanguard All-Equity ETF,,,CAD,40.50,0.00,40.50,1.0000,40.50,TFSA
+2024-10-15,Buy,XQQ.TO,iShares NASDAQ 100 ETF,30,37.40,CAD,-1122.00,6.95,-1128.95,1.0000,-1128.95,TFSA
