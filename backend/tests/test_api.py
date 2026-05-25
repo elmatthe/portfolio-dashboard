@@ -108,3 +108,119 @@ class TestTransactionSourcesEndpoint:
         assert "wealthsimple" in data
         assert "rbc" in data
         assert len(data) == 2
+
+
+class TestManualTransactionAPI:
+    def test_create_valid_buy(self, client):
+        r = client.post("/api/transactions/manual", json={
+            "transaction_date": "2024-03-10",
+            "action": "BUY",
+            "ticker": "VEQT.TO",
+            "quantity": 50,
+            "price": 39.25,
+            "currency": "CAD",
+            "commission": 0,
+            "account_type": "TFSA",
+        })
+        assert r.status_code == 201
+        data = r.json()
+        assert data["broker"] == "Manual"
+        assert data["is_manual"] is True
+        assert data["fx_rate_to_cad"] is not None
+        assert data["net_cad"] is not None
+
+    def test_create_oversell_returns_400(self, client):
+        r = client.post("/api/transactions/manual", json={
+            "transaction_date": "2024-03-10",
+            "action": "SELL",
+            "ticker": "VEQT.TO",
+            "quantity": 100,
+            "price": 40.0,
+            "currency": "CAD",
+            "commission": 0,
+            "account_type": "TFSA",
+        })
+        assert r.status_code == 400
+        assert "exceeds" in r.json()["detail"].lower()
+
+    def test_create_duplicate_returns_409(self, client):
+        body = {
+            "transaction_date": "2024-04-10",
+            "action": "BUY",
+            "ticker": "AAPL",
+            "quantity": 10,
+            "price": 180.0,
+            "currency": "USD",
+            "commission": 0,
+            "account_type": "Margin",
+        }
+        r1 = client.post("/api/transactions/manual", json=body)
+        assert r1.status_code == 201
+        r2 = client.post("/api/transactions/manual", json=body)
+        assert r2.status_code == 409
+
+    def test_create_missing_ticker_for_buy_returns_422(self, client):
+        r = client.post("/api/transactions/manual", json={
+            "transaction_date": "2024-03-10",
+            "action": "BUY",
+            "ticker": "",
+            "quantity": 10,
+            "price": 40.0,
+            "currency": "CAD",
+            "commission": 0,
+            "account_type": "TFSA",
+        })
+        assert r.status_code == 422
+
+    def test_delete_manual_row(self, client):
+        r = client.post("/api/transactions/manual", json={
+            "transaction_date": "2024-05-10",
+            "action": "BUY",
+            "ticker": "TD.TO",
+            "quantity": 20,
+            "price": 80.0,
+            "currency": "CAD",
+            "commission": 0,
+            "account_type": "RRSP",
+        })
+        assert r.status_code == 201
+        tx_hash = r.json()["hash"]
+        r2 = client.delete(f"/api/transactions/manual/{tx_hash}")
+        assert r2.status_code == 204
+
+    def test_delete_imported_returns_403(self, client, _loaded_ws):
+        txs = client.get("/api/transactions").json()
+        imported_hash = txs[0]["hash"]
+        r = client.delete(f"/api/transactions/manual/{imported_hash}")
+        assert r.status_code == 403
+
+    def test_preview_returns_derived_values(self, client):
+        r = client.get("/api/transactions/manual/preview", params={
+            "transaction_date": "2024-03-10",
+            "currency": "USD",
+            "quantity": 10,
+            "price": 180.0,
+            "commission": 5.0,
+            "action": "BUY",
+        })
+        assert r.status_code == 200
+        data = r.json()
+        assert "fx_rate_to_cad" in data
+        assert "net_cad" in data
+        assert data["gross_amount"] == 1800.0
+        assert data["net_amount"] == -1805.0
+
+    def test_position_endpoint(self, client):
+        client.post("/api/transactions/manual", json={
+            "transaction_date": "2024-01-10",
+            "action": "BUY",
+            "ticker": "ENB.TO",
+            "quantity": 35,
+            "price": 48.0,
+            "currency": "CAD",
+            "commission": 0,
+            "account_type": "Margin",
+        })
+        r = client.get("/api/portfolio/position", params={"ticker": "ENB.TO", "account_type": "Margin"})
+        assert r.status_code == 200
+        assert r.json()["held_quantity"] == 35.0

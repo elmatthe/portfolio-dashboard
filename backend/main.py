@@ -285,6 +285,215 @@ def get_transaction_sources() -> list[str]:
     return sorted({t.broker for t in txs})
 
 
+class ManualTransactionRequest(BaseModel):
+    transaction_date: str
+    action: str
+    ticker: str | None = None
+    quantity: float = 0.0
+    price: float = 0.0
+    currency: str = "CAD"
+    commission: float = 0.0
+    account_type: str
+    account_number: str = ""
+    settlement_date: str | None = None
+    isin: str | None = None
+    notes: str | None = None
+    description: str | None = None
+    net_amount: float | None = None
+
+
+@app.post("/api/transactions/manual", status_code=201)
+def create_manual_transaction(body: ManualTransactionRequest):
+    """Create a manual transaction. Validates, populates FX, deduplicates, updates ACB."""
+    from backend.parser import compute_hash
+
+    action = body.action.upper()
+    if action not in ("BUY", "SELL", "DIVIDEND", "DEPOSIT", "WITHDRAWAL", "TRANSFER", "FEE"):
+        raise HTTPException(status_code=422, detail=f"Invalid action: {body.action}")
+    if action in ("BUY", "SELL") and not body.ticker:
+        raise HTTPException(status_code=422, detail="Ticker is required for buy/sell actions")
+    if action in ("BUY", "SELL") and body.quantity <= 0:
+        raise HTTPException(status_code=422, detail="Quantity must be > 0 for buy/sell")
+    if action in ("BUY", "SELL") and body.price <= 0:
+        raise HTTPException(status_code=422, detail="Price must be > 0 for buy/sell")
+    if body.commission < 0:
+        raise HTTPException(status_code=422, detail="Commission must be >= 0")
+
+    try:
+        tx_date = date.fromisoformat(body.transaction_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid transaction_date format")
+
+    settlement = None
+    if body.settlement_date:
+        try:
+            settlement = date.fromisoformat(body.settlement_date)
+        except ValueError:
+            pass
+
+    ticker = body.ticker.strip().upper() if body.ticker else None
+
+    if action == "BUY":
+        gross = body.quantity * body.price
+        net = -(gross + body.commission)
+    elif action == "SELL":
+        gross = body.quantity * body.price
+        net = gross - body.commission
+    else:
+        net = body.net_amount if body.net_amount is not None else 0.0
+        gross = abs(net)
+
+    account_number = body.account_number or f"manual-{body.account_type.lower()}"
+    h = compute_hash(
+        transaction_date=tx_date,
+        action=action,
+        raw_symbol=ticker,
+        quantity=body.quantity,
+        net_amount=net,
+        account_number=account_number,
+    )
+
+    tx = Transaction(
+        hash=h,
+        broker="Manual",
+        transaction_date=tx_date,
+        settlement_date=settlement,
+        action=action,
+        raw_symbol=ticker,
+        resolved_ticker=ticker,
+        description=body.description or "",
+        quantity=body.quantity,
+        price=body.price,
+        gross_amount=gross,
+        commission=body.commission,
+        net_amount=net,
+        currency=body.currency,
+        account_number=account_number,
+        account_type=body.account_type,
+        isin=body.isin,
+        notes=body.notes,
+        is_manual=True,
+        source_file="manual-entry",
+    )
+
+    try:
+        result = store.insert_manual_transaction(tx)
+    except ValueError as e:
+        msg = str(e)
+        if "Duplicate" in msg:
+            raise HTTPException(status_code=409, detail=msg)
+        if "exceeds held position" in msg:
+            raise HTTPException(status_code=400, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
+
+    return result
+
+
+@app.put("/api/transactions/manual/{tx_hash}")
+def update_manual_tx(tx_hash: str, body: ManualTransactionRequest):
+    """Update a manual transaction by hash."""
+    updates: dict = {}
+    if body.transaction_date:
+        updates["transaction_date"] = body.transaction_date
+    if body.action:
+        updates["action"] = body.action.upper()
+    if body.ticker is not None:
+        updates["raw_symbol"] = body.ticker.strip().upper() if body.ticker else None
+        updates["resolved_ticker"] = updates["raw_symbol"]
+    if body.quantity is not None:
+        updates["quantity"] = body.quantity
+    if body.price is not None:
+        updates["price"] = body.price
+    if body.commission is not None:
+        updates["commission"] = body.commission
+    if body.currency:
+        updates["currency"] = body.currency
+    if body.account_type:
+        updates["account_type"] = body.account_type
+    if body.account_number:
+        updates["account_number"] = body.account_number
+    if body.settlement_date:
+        updates["settlement_date"] = body.settlement_date
+    if body.isin is not None:
+        updates["isin"] = body.isin
+    if body.notes is not None:
+        updates["notes"] = body.notes
+    if body.description is not None:
+        updates["description"] = body.description
+
+    try:
+        result = store.update_manual_transaction(tx_hash, updates)
+    except ValueError as e:
+        msg = str(e)
+        if "not found" in msg.lower():
+            raise HTTPException(status_code=404, detail=msg)
+        if "Cannot edit" in msg:
+            raise HTTPException(status_code=403, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
+    return result
+
+
+@app.delete("/api/transactions/manual/{tx_hash}", status_code=204)
+def delete_manual_tx(tx_hash: str):
+    """Delete a manual transaction by hash."""
+    try:
+        store.delete_manual_transaction(tx_hash)
+    except ValueError as e:
+        msg = str(e)
+        if "not found" in msg.lower():
+            raise HTTPException(status_code=404, detail=msg)
+        if "Cannot delete" in msg:
+            raise HTTPException(status_code=403, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
+
+
+@app.get("/api/transactions/manual/preview")
+def preview_manual_transaction(
+    transaction_date: str | None = None,
+    currency: str = "CAD",
+    quantity: float = 0.0,
+    price: float = 0.0,
+    commission: float = 0.0,
+    action: str = "BUY",
+):
+    """Live preview of derived values (FX rate, net_cad) before saving."""
+    from backend.fx import get_fx_service
+
+    fx = get_fx_service()
+    try:
+        tx_date = date.fromisoformat(transaction_date) if transaction_date else date.today()
+    except ValueError:
+        tx_date = date.today()
+
+    fx_rate = fx.rate_to_cad(currency, tx_date)
+
+    act = action.upper()
+    if act == "BUY":
+        gross = quantity * price
+        net = -(gross + commission)
+    elif act == "SELL":
+        gross = quantity * price
+        net = gross - commission
+    else:
+        gross = quantity * price
+        net = gross - commission if gross else 0.0
+
+    net_cad = round(net * fx_rate, 2)
+    return {
+        "gross_amount": round(gross, 2),
+        "net_amount": round(net, 2),
+        "fx_rate_to_cad": round(fx_rate, 4),
+        "net_cad": net_cad,
+    }
+
+
+@app.get("/api/portfolio/position")
+def get_position(ticker: str, account_type: str):
+    """Get held quantity for a ticker in an account type (for over-sell validation)."""
+    held = store.get_held_quantity(ticker, account_type)
+    return {"held_quantity": round(held, 6)}
+
+
 # ---------- portfolio aggregation ----------
 
 @app.get("/api/portfolio", response_model=PortfolioData)
