@@ -45,6 +45,7 @@ from backend.models import (
     PriceRefreshResult,
     PriceStatus,
     ResolvedTicker,
+    Transaction,
     UnresolvedTicker,
 )
 from backend.parser import UnknownFormatError, parse_file
@@ -236,6 +237,52 @@ async def import_file(file: UploadFile = File(...)) -> ImportResult:
             tmp.unlink(missing_ok=True)
         except Exception:
             pass
+
+
+# ---------- transactions ----------
+
+@app.get("/api/transactions", response_model=list[Transaction])
+def get_transactions(
+    broker: str | None = None,
+    account_type: str | None = None,
+    currency: str | None = None,
+    action: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    search: str | None = None,
+) -> list[Transaction]:
+    """All transactions for the active profile, optionally filtered."""
+    txs = store.get_all_transactions()
+    if broker:
+        txs = [t for t in txs if t.broker == broker]
+    if account_type:
+        txs = [t for t in txs if t.account_type == account_type]
+    if currency:
+        txs = [t for t in txs if t.currency == currency]
+    if action:
+        txs = [t for t in txs if t.action == action.upper()]
+    if date_from:
+        d = date.fromisoformat(date_from)
+        txs = [t for t in txs if t.transaction_date >= d]
+    if date_to:
+        d = date.fromisoformat(date_to)
+        txs = [t for t in txs if t.transaction_date <= d]
+    if search:
+        q = search.lower()
+        txs = [
+            t for t in txs
+            if (t.raw_symbol and q in t.raw_symbol.lower())
+            or (t.resolved_ticker and q in t.resolved_ticker.lower())
+            or (t.description and q in t.description.lower())
+        ]
+    return txs
+
+
+@app.get("/api/transactions/sources")
+def get_transaction_sources() -> list[str]:
+    """Distinct broker values present in the active profile's transactions."""
+    txs = store.get_all_transactions()
+    return sorted({t.broker for t in txs})
 
 
 # ---------- portfolio aggregation ----------
