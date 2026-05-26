@@ -441,6 +441,8 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
                 qc.invalidateQueries({ queryKey: ["transactions"] });
                 qc.invalidateQueries({ queryKey: ["transaction-sources"] });
                 qc.invalidateQueries({ queryKey: ["portfolio"] });
+                qc.invalidateQueries({ queryKey: ["correlation"] });
+                qc.invalidateQueries({ queryKey: ["import-status"] });
               }}
             />
           </div>
