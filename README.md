@@ -104,11 +104,17 @@ for release notes.
 
 ## Privacy
 
-Everything is stored on your computer. The app's only outbound network calls
-are to **Yahoo Finance** (price + history lookups) and, optionally with
-`FX_LIVE_RATES=true`, to the **Bank of Canada Valet API** (historical FX
-rates). No account number, ticker symbol, or balance is sent to any service
-the user didn't explicitly opt in to.
+Everything is stored on your computer. All financial data — imported
+transactions, manually entered transactions, holdings, ACB calculations,
+realized gains, and cached prices — lives in a per-profile SQLite database
+on your local disk. Nothing is sent to the cloud except opt-in price lookups.
+
+The app's only outbound network calls are to **Yahoo Finance** (price +
+history lookups) and, optionally with `FX_LIVE_RATES=true`, to the **Bank of
+Canada Valet API** (historical FX rates). No account number, ticker symbol,
+balance, or transaction detail is sent to any service the user didn't
+explicitly opt in to. There is no telemetry, no analytics, and no remote
+logging.
 
 | Item | Location |
 | --- | --- |
@@ -117,6 +123,11 @@ the user didn't explicitly opt in to.
 | App preferences | `app_state` table inside each profile DB |
 | Window position | `%APPDATA%\Portfolio Dashboard\window-state.json` |
 | Backend log | `%APPDATA%\Portfolio Dashboard\backend.log` |
+
+To clear all data for a profile, go to **Settings → Data → Clear all data**.
+This removes all transactions (imported and manual), holdings, cached prices,
+alerts, and ticker mappings. Settings are preserved. To remove the profile
+entirely, delete its folder under `%APPDATA%\Portfolio Dashboard\profiles\`.
 
 ---
 
