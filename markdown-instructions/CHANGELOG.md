@@ -6,6 +6,68 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.6.0] — 2026-05-25
+
+Feature release: dedicated Transactions page, manual transaction entry,
+combined-stats verification, and privacy hardening.
+
+### Added
+
+- **Transactions page** — a dedicated section reachable from the nav banner
+  where all activity is grouped by source/institution (Questrade, Wealthsimple,
+  RBC, etc.). Each broker appears as a collapsible group with a transaction
+  count badge. Includes 9 default columns + 5 toggleable columns, client-side
+  filters (source, account type, currency, action, date range, text search),
+  column sorting per source group, and inline row drill-in for full detail.
+
+- **Manual transaction entry** — users can add, edit, and delete transactions
+  by hand via a ModalPortal form. Manual entries flow through the same SHA-256
+  dedup, FXService (trade-date rate), and CRA-compliant ACB engine as imported
+  rows. The form shows live derived values (gross, net, FX rate, CAD equivalent)
+  as the user types. Over-sell guard checks held quantity before allowing sells.
+  Imported rows are always read-only.
+
+- **`/api/transactions` and `/api/transactions/sources`** — new endpoints for
+  fetching all transactions with server-side filtering and the distinct broker
+  list.
+
+- **`/api/transactions/manual` CRUD** — POST/PUT/DELETE endpoints for manual
+  entries, plus a GET preview endpoint for live derived values.
+
+- **`/api/portfolio/position`** — new endpoint returning held quantity for a
+  (ticker, account_type) pair, used by the over-sell guard.
+
+- **80 backend tests** — 10 combined-stats acceptance tests, 16 manual-entry
+  store tests, 8 manual-entry API tests, plus the original parser/ACB/dedup
+  suite.
+
+- **Playwright E2E test scaffolding** — test infrastructure with browser
+  install, config, and 7 manual-entry E2E tests (skip gracefully when app
+  is not running).
+
+### Changed
+
+- **"Manual" added as a broker type** — `Broker` literal in both Python and
+  TypeScript now includes `"Manual"`. Manual entries set `broker="Manual"`,
+  `is_manual=True`, `source_file="manual-entry"`.
+
+- **DB schema** — three new columns on the `transactions` table:
+  `is_manual` (INTEGER DEFAULT 0), `notes` (TEXT), `source_file` (TEXT).
+  Added via the existing `_migrate_schema` pattern so existing DBs upgrade
+  automatically.
+
+- **`wipe_all_data()`** now also clears the `price_alerts` table.
+
+- **README Privacy section** expanded to document manual transaction data,
+  no-telemetry guarantee, and how to clear all data.
+
+### Fixed
+
+- **Clear all data** now covers the `price_alerts` table (previously missed,
+  so alerts persisted across a data clear).
+
+---
+
 ## [0.5.3] — 2026-05-22
 
 Four-bug fix release covering overlay positioning, time-weighted period

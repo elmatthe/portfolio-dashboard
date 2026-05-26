@@ -7,7 +7,7 @@ multi-currency exposure, and performance attribution — all on your own
 computer, with nothing sent to the cloud except a daily call to Yahoo Finance
 for prices.
 
-**Current version: 0.5.3** · See [`markdown-instructions/CHANGELOG.md`](markdown-instructions/CHANGELOG.md)
+**Current version: 0.6.0** · See [`markdown-instructions/CHANGELOG.md`](markdown-instructions/CHANGELOG.md)
 for release notes.
 
 ---
