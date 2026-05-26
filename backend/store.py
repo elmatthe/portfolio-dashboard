@@ -574,7 +574,7 @@ def _held_quantity(ticker: str, account_type: str) -> float:
 # ---------- destructive (tests / "reset" feature) ----------
 
 def wipe_all_data() -> None:
-    """Used by tests and a future user-facing 'reset everything' button."""
+    """Used by tests and the user-facing 'Clear all data' button."""
     engine = db.get_engine()
     with engine.begin() as conn:
         conn.execute(delete(db.transactions))
@@ -583,3 +583,4 @@ def wipe_all_data() -> None:
         conn.execute(delete(db.price_history))
         conn.execute(delete(db.exchange_rates))
         conn.execute(delete(db.app_state))
+        conn.execute(delete(db.price_alerts))
