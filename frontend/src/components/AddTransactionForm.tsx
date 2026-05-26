@@ -56,6 +56,8 @@ export default function AddTransactionForm({ onSuccess, onCancel, editTx }: Prop
   const [serverError, setServerError] = useState("");
 
   const [showExtras, setShowExtras] = useState(!!editTx?.isin || !!editTx?.notes);
+  const [heldQty, setHeldQty] = useState<number | null>(null);
+  const [heldLoading, setHeldLoading] = useState(false);
 
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -86,6 +88,20 @@ export default function AddTransactionForm({ onSuccess, onCancel, editTx }: Prop
     }, 500);
     return () => { if (previewTimer.current) clearTimeout(previewTimer.current); };
   }, [transactionDate, currency, quantity, price, commission, action]);
+
+  useEffect(() => {
+    if (action !== "SELL" || !ticker.trim() || !accountType) {
+      setHeldQty(null);
+      return;
+    }
+    setHeldLoading(true);
+    api.heldPosition(ticker.trim().toUpperCase(), accountType)
+      .then((r) => setHeldQty(r.held_quantity))
+      .catch(() => setHeldQty(null))
+      .finally(() => setHeldLoading(false));
+  }, [action, ticker, accountType]);
+
+  const overSell = action === "SELL" && heldQty !== null && parseFloat(quantity || "0") > heldQty;
 
   function validate(): boolean {
     const e: Record<string, string> = {};
@@ -146,7 +162,6 @@ export default function AddTransactionForm({ onSuccess, onCancel, editTx }: Prop
   }
 
   const isFutureDate = transactionDate > today();
-  const isValid = !Object.keys(errors).length || validate();
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 text-sm">
@@ -224,6 +239,12 @@ export default function AddTransactionForm({ onSuccess, onCancel, editTx }: Prop
               onBlur={validate}
             />
             {errors.quantity && <span className="text-loss text-xs">{errors.quantity}</span>}
+            {overSell && (
+              <span className="text-loss text-xs">
+                You hold {heldQty} shares of {ticker.toUpperCase()} in {accountType}. Cannot sell {quantity}.
+              </span>
+            )}
+            {heldLoading && <span className="text-text-muted text-xs">Checking position…</span>}
           </div>
           <div>
             <label className="block text-text-muted text-xs mb-1">Price *</label>
@@ -322,7 +343,7 @@ export default function AddTransactionForm({ onSuccess, onCancel, editTx }: Prop
         <button
           type="submit"
           className="btn-primary"
-          disabled={saving}
+          disabled={saving || overSell}
         >
           {saving && <Loader2 size={14} className="animate-spin" />}
           {isEdit ? "Update" : "Save"}
