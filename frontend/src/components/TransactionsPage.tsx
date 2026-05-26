@@ -1,6 +1,6 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useState, useMemo, useCallback } from "react";
-import { ChevronDown, ChevronRight, Columns3, Search, X, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, Columns3, Search, X, Plus, Pencil, Trash2 } from "lucide-react";
 import clsx from "clsx";
 import { api, fmt } from "../api";
 import { useProfile } from "./ProfileContext";
@@ -235,6 +235,20 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [editTx, setEditTx] = useState<Transaction | null>(null);
 
+  function handleDeleteTx(tx: Transaction) {
+    api.deleteManualTransaction(tx.hash)
+      .then(() => {
+        toast.push(`Transaction deleted — ${tx.resolved_ticker || tx.action}`, "success");
+        qc.invalidateQueries({ queryKey: ["transactions"] });
+        qc.invalidateQueries({ queryKey: ["portfolio"] });
+        qc.invalidateQueries({ queryKey: ["correlation"] });
+        qc.invalidateQueries({ queryKey: ["import-status"] });
+      })
+      .catch((err: Error) => {
+        toast.push(`Delete failed: ${err.message}`, "error");
+      });
+  }
+
   return (
     <div className="min-h-screen">
       <SyncStatus
@@ -403,6 +417,8 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
                 columns={activeCols}
                 hasActiveFilters={hasActiveFilters}
                 onAddTransaction={() => setAddModalOpen(true)}
+                onEditTransaction={(tx) => { setEditTx(tx); setAddModalOpen(true); }}
+                onDeleteTransaction={(tx) => handleDeleteTx(tx)}
               />
             ))}
           </div>
@@ -460,6 +476,8 @@ function SourceGroup({
   columns,
   hasActiveFilters,
   onAddTransaction,
+  onEditTransaction,
+  onDeleteTransaction,
 }: {
   broker: string;
   transactions: Transaction[];
@@ -468,6 +486,8 @@ function SourceGroup({
   columns: ColumnDef[];
   hasActiveFilters: boolean;
   onAddTransaction?: () => void;
+  onEditTransaction?: (tx: Transaction) => void;
+  onDeleteTransaction?: (tx: Transaction) => void;
 }) {
   const label = BROKER_LABELS[broker] || broker;
   const isManual = broker === "Manual";
@@ -563,6 +583,8 @@ function SourceGroup({
                       columns={columns}
                       expanded={expandedHash === tx.hash}
                       onToggle={() => setExpandedHash(expandedHash === tx.hash ? null : tx.hash)}
+                      onEdit={tx.is_manual ? () => onEditTransaction?.(tx) : undefined}
+                      onDelete={tx.is_manual ? () => onDeleteTransaction?.(tx) : undefined}
                     />
                   ))}
                 </tbody>
@@ -580,17 +602,23 @@ function TxRow({
   columns,
   expanded,
   onToggle,
+  onEdit,
+  onDelete,
 }: {
   tx: Transaction;
   columns: ColumnDef[];
   expanded: boolean;
   onToggle: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
 }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   return (
     <>
       <tr
         className={clsx(
-          "cursor-pointer transition-colors",
+          "cursor-pointer transition-colors group",
           expanded ? "bg-accent/5" : "hover:bg-border/10"
         )}
         onClick={onToggle}
@@ -609,10 +637,61 @@ function TxRow({
             {getCellValue(tx, col.key)}
           </td>
         ))}
+        {(onEdit || onDelete) && (
+          <td className="py-2 px-1 whitespace-nowrap w-16">
+            <span className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+              {onEdit && (
+                <button
+                  className="p-1 text-text-muted hover:text-accent rounded"
+                  onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                  title="Edit"
+                >
+                  <Pencil size={13} />
+                </button>
+              )}
+              {onDelete && (
+                <button
+                  className="p-1 text-text-muted hover:text-loss rounded"
+                  onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
+                  title="Delete"
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </span>
+          </td>
+        )}
       </tr>
-      {expanded && (
+      {confirmDelete && (
         <tr>
-          <td colSpan={columns.length} className="p-0">
+          <td colSpan={columns.length + 1} className="p-0">
+            <div className="bg-loss/5 border-t border-loss/20 px-4 py-3 flex items-center gap-3 text-xs">
+              <span className="text-text-primary">
+                Delete this {tx.action} of {tx.resolved_ticker || tx.raw_symbol || "transaction"} on {tx.transaction_date}? This cannot be undone.
+              </span>
+              <button
+                className="btn-ghost text-xs"
+                onClick={(e) => { e.stopPropagation(); setConfirmDelete(false); }}
+              >
+                Cancel
+              </button>
+              <button
+                className="bg-loss text-white text-xs px-3 py-1 rounded hover:bg-loss/80"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirmDelete(false);
+                  onDelete?.();
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </td>
+        </tr>
+      )}
+      {expanded && !confirmDelete && (
+        <tr>
+          <td colSpan={columns.length + ((onEdit || onDelete) ? 1 : 0)} className="p-0">
             <TxDetailPanel tx={tx} />
           </td>
         </tr>
