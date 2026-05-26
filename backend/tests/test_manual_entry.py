@@ -172,3 +172,44 @@ class TestManualDividendDeposit:
         result = insert_manual_transaction(tx)
         assert result.action == "DEPOSIT"
         assert result.net_cad is not None
+
+
+class TestManualEntryACBIntegration:
+    def test_manual_between_imports_acb_correct(self):
+        """Manual entry inserted between imported rows re-sorts chronologically."""
+        from backend.acb import compute
+
+        buy1 = _make_manual_tx(action="BUY", qty=100, price=38.00, tx_date="2024-01-05")
+        insert_manual_transaction(buy1)
+        buy2 = _make_manual_tx(action="BUY", qty=50, price=42.00, tx_date="2024-03-15",
+                               account_number="manual-tfsa-2")
+        insert_manual_transaction(buy2)
+        buy_mid = _make_manual_tx(action="BUY", qty=25, price=40.00, tx_date="2024-02-10",
+                                  account_number="manual-tfsa-3")
+        insert_manual_transaction(buy_mid)
+
+        txs = get_all_transactions()
+        holdings, _ = compute(txs)
+        h = holdings.get(("VEQT.TO", "TFSA"))
+        assert h is not None
+        assert h.total_shares == 175
+        expected_cost = (100 * 38.00) + (25 * 40.00) + (50 * 42.00)
+        assert abs(h.total_cost - expected_cost) < 0.01
+
+    def test_manual_usd_entry_uses_static_fallback(self):
+        """Manual entry in a currency with no live rate uses static fallback."""
+        tx = _make_manual_tx(currency="GBP", ticker="VOD.L", tx_date="2024-06-15")
+        result = insert_manual_transaction(tx)
+        assert result.fx_rate_to_cad is not None
+        assert result.fx_rate_to_cad > 0
+        assert result.net_cad is not None
+
+    def test_delete_unwinds_acb(self):
+        """Deleting a manual sell correctly allows the shares to be held again."""
+        buy = _make_manual_tx(action="BUY", qty=100, price=38.00, tx_date="2024-01-10")
+        insert_manual_transaction(buy)
+        sell = _make_manual_tx(action="SELL", qty=30, price=40.00, tx_date="2024-03-10")
+        insert_manual_transaction(sell)
+        assert abs(get_held_quantity("VEQT.TO", "TFSA") - 70.0) < 0.01
+        delete_manual_transaction(sell.hash)
+        assert abs(get_held_quantity("VEQT.TO", "TFSA") - 100.0) < 0.01
