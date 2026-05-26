@@ -8,6 +8,8 @@ import { usePortfolio } from "../hooks/usePortfolio";
 import { useAutoRefreshPrices } from "../hooks/useAutoRefreshPrices";
 import SyncStatus from "./SyncStatus";
 import { ModalPortal } from "./ModalPortal";
+import AddTransactionForm from "./AddTransactionForm";
+import { useToast } from "./Toast";
 import type { Transaction, Broker } from "../types";
 
 interface Props {
@@ -113,6 +115,8 @@ function getCellValue(tx: Transaction, col: ColumnKey): string {
 export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
   const profile = useProfile();
   const portfolio = usePortfolio("all");
+  const toast = useToast();
+  const qc = useQueryClient();
   useAutoRefreshPrices(30);
 
   const txQuery = useQuery({
@@ -229,6 +233,7 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
   const activeCols = COLUMNS.filter((c) => visibleCols.has(c.key));
 
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [editTx, setEditTx] = useState<Transaction | null>(null);
 
   return (
     <div className="min-h-screen">
@@ -407,20 +412,37 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
       {addModalOpen && (
         <ModalPortal onClose={() => setAddModalOpen(false)} labelledBy="add-tx-title">
           <div
-            className="max-w-lg mx-auto mt-20 bg-surface rounded-xl shadow-2xl p-6"
+            className="max-w-lg mx-auto mt-16 mb-8 bg-surface rounded-xl shadow-2xl p-6"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
-              <h2 id="add-tx-title" className="text-lg font-semibold">Add Transaction</h2>
+              <h2 id="add-tx-title" className="text-lg font-semibold">
+                {editTx ? "Edit Transaction" : "Add Transaction"}
+              </h2>
               <button
                 className="text-text-muted hover:text-text-primary p-1"
-                onClick={() => setAddModalOpen(false)}
+                onClick={() => { setAddModalOpen(false); setEditTx(null); }}
                 aria-label="Close"
               >
                 <X size={18} />
               </button>
             </div>
-            <div className="text-text-muted text-sm">Form coming in sub-task 4</div>
+            <AddTransactionForm
+              editTx={editTx}
+              onCancel={() => { setAddModalOpen(false); setEditTx(null); }}
+              onSuccess={(tx) => {
+                setAddModalOpen(false);
+                setEditTx(null);
+                const label = editTx ? "updated" : "added";
+                toast.push(
+                  `Transaction ${label} — ${tx.resolved_ticker || tx.action} on ${tx.transaction_date}`,
+                  "success"
+                );
+                qc.invalidateQueries({ queryKey: ["transactions"] });
+                qc.invalidateQueries({ queryKey: ["transaction-sources"] });
+                qc.invalidateQueries({ queryKey: ["portfolio"] });
+              }}
+            />
           </div>
         </ModalPortal>
       )}

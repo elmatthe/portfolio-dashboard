@@ -218,6 +218,29 @@ export const api = {
     return request<import("./types").Transaction[]>(`/api/transactions${qs}`);
   },
   transactionSources: () => request<string[]>("/api/transactions/sources"),
+  createManualTransaction: (body: Record<string, unknown>) =>
+    request<import("./types").Transaction>("/api/transactions/manual", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateManualTransaction: (hash: string, body: Record<string, unknown>) =>
+    request<import("./types").Transaction>(`/api/transactions/manual/${encodeURIComponent(hash)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  deleteManualTransaction: (hash: string) =>
+    fetch(`${BASE}/api/transactions/manual/${encodeURIComponent(hash)}`, { method: "DELETE" })
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); }),
+  previewManualTransaction: (params: Record<string, string>) => {
+    const qs = Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+    return request<{ gross_amount: number; net_amount: number; fx_rate_to_cad: number; net_cad: number }>(
+      `/api/transactions/manual/preview?${qs}`
+    );
+  },
+  heldPosition: (ticker: string, accountType: string) =>
+    request<{ held_quantity: number }>(
+      `/api/portfolio/position?ticker=${encodeURIComponent(ticker)}&account_type=${encodeURIComponent(accountType)}`
+    ),
 };
 
 // Per-currency display symbol. JPY uses the actual yen sign; everything else
