@@ -129,6 +129,14 @@ This removes all transactions (imported and manual), holdings, cached prices,
 alerts, and ticker mappings. Settings are preserved. To remove the profile
 entirely, delete its folder under `%APPDATA%\Portfolio Dashboard\profiles\`.
 
+To **reset the entire app** (all profiles, all data, all caches), go to
+**Settings → Data → Reset app to factory state** or use the recovery screen
+that appears when the app detects a corrupt database.
+
+**Manual recovery** (if the app won't start): delete the entire
+`%APPDATA%\Portfolio Dashboard` folder and relaunch. The app will recreate
+a fresh default profile on startup.
+
 ---
 
 ## Installation (Windows)

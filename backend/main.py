@@ -56,6 +56,28 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 
 
+_db_corrupt: bool = False
+_db_corrupt_detail: str = ""
+
+
+def _check_db_health() -> bool:
+    """Try a trivial query; return True if healthy, False if corrupt."""
+    global _db_corrupt, _db_corrupt_detail
+    try:
+        from sqlalchemy import select as sa_select
+        engine = db.get_engine()
+        with engine.connect() as conn:
+            conn.execute(sa_select(db.transactions.c.id).limit(1))
+        _db_corrupt = False
+        _db_corrupt_detail = ""
+        return True
+    except Exception as e:
+        _db_corrupt = True
+        _db_corrupt_detail = str(e)
+        logger.error("DB health check failed: %s", e)
+        return False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan: initialise profile system + bind the engine to the active profile's DB on startup."""
@@ -69,6 +91,7 @@ async def lifespan(app: FastAPI):
         logger.warning("Profile init failed, falling back to legacy DB path: %s", e)
     db.get_engine()  # ensure tables exist
     logger.info("DB ready at %s", db.resolve_db_path())
+    _check_db_health()
     # Surface bundled-vs-source parity: log every parser the registry sees.
     # If this list is shorter than 12 in a PyInstaller bundle, hiddenimports
     # are missing and imports will fall back to "generic" → KeyError.
@@ -123,11 +146,13 @@ async def _global_error(request, exc: Exception):
 
 @app.get("/health")
 def health() -> dict:
-    """Liveness probe used by Electron's startup health check. Returns DB path and size."""
+    """Liveness probe used by Electron's startup health check. Reports DB corruption state."""
     return {
         "status": "ok",
         "db_path": str(db.resolve_db_path()),
         "db_size_kb": db.db_size_kb(),
+        "db_corrupt": _db_corrupt,
+        "db_corrupt_detail": _db_corrupt_detail if _db_corrupt else None,
     }
 
 

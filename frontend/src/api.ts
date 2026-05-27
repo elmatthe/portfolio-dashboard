@@ -92,7 +92,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => request<{ status: string; db_path: string; db_size_kb: number }>("/health"),
+  health: () => request<{ status: string; db_path: string; db_size_kb: number; db_corrupt: boolean; db_corrupt_detail?: string | null }>("/health"),
   importStatus: () => request<ImportStatus>("/api/import/status"),
   importFile: async (file: File): Promise<ImportResult> => {
     const fd = new FormData();
