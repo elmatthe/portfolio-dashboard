@@ -469,14 +469,23 @@ def _price_at_or_before(df: pd.DataFrame, d: date) -> float | None:
     """Return the most recent daily close on or before `d`. None if no row exists."""
     if df is None or df.empty or "close" not in df.columns:
         return None
-    ts = pd.Timestamp(d)
-    applicable = df[df.index <= ts]
-    if applicable.empty:
+    try:
+        if not isinstance(df.index, pd.DatetimeIndex):
+            df = df.copy()
+            df.index = pd.to_datetime(df.index, errors="coerce")
+            df = df[df.index.notna()]
+            if df.empty:
+                return None
+        ts = pd.Timestamp(d)
+        applicable = df[df.index <= ts]
+        if applicable.empty:
+            return None
+        val = applicable["close"].iloc[-1]
+        if pd.isna(val):
+            return None
+        return float(val)
+    except Exception:
         return None
-    val = applicable["close"].iloc[-1]
-    if pd.isna(val):
-        return None
-    return float(val)
 
 
 def _value_history_at(points: list, d: date) -> float:
@@ -658,9 +667,15 @@ def _weekly_close(df: pd.DataFrame) -> pd.Series:
     """Resample a daily close DataFrame to weekly bars."""
     if df is None or df.empty or "close" not in df.columns:
         return pd.Series(dtype=float)
-    s = df["close"].copy()
-    s.index = pd.to_datetime(s.index)
-    return s.resample("W").last().dropna()
+    try:
+        s = df["close"].copy()
+        s.index = pd.to_datetime(s.index, errors="coerce")
+        s = s[s.index.notna()]
+        if s.empty:
+            return pd.Series(dtype=float)
+        return s.resample("W").last().dropna()
+    except Exception:
+        return pd.Series(dtype=float)
 
 
 def _weekly_returns(df: pd.DataFrame) -> pd.Series:
@@ -681,6 +696,20 @@ def _weekly_stats(df: pd.DataFrame) -> tuple[float | None, float | None]:
     return avg, vol
 
 
+def _filter_series_by_date(s: pd.Series, start: date) -> pd.Series:
+    """Filter a time series to dates >= start, safe against non-DatetimeIndex."""
+    if s.empty:
+        return s
+    try:
+        if not isinstance(s.index, pd.DatetimeIndex):
+            s = s.copy()
+            s.index = pd.to_datetime(s.index, errors="coerce")
+            s = s[s.index.notna()]
+        return s[s.index >= pd.Timestamp(start)]
+    except (TypeError, ValueError):
+        return s
+
+
 def _portfolio_stats(
     holdings: list[Holding],
     risk_free: float,
@@ -698,7 +727,7 @@ def _portfolio_stats(
         df = store.get_price_history(h.ticker)
         r = _weekly_returns(df)
         if period_start is not None:
-            r = r[r.index >= pd.Timestamp(period_start)]
+            r = _filter_series_by_date(r, period_start)
         if r.empty:
             continue
         series_list.append(r)
@@ -779,7 +808,7 @@ def correlation_matrix(
             df = store.get_price_history(ticker)
             r = _weekly_returns(df)
             if period_start is not None:
-                r = r[r.index >= pd.Timestamp(period_start)]
+                r = _filter_series_by_date(r, period_start)
             if not r.empty:
                 series[ticker] = r
 

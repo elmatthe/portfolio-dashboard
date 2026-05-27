@@ -496,10 +496,26 @@ def get_position(ticker: str, account_type: str):
 
 # ---------- portfolio aggregation ----------
 
-@app.get("/api/portfolio", response_model=PortfolioData)
-def get_portfolio(account: str | None = None, period: str | None = None) -> PortfolioData:
-    """Full PortfolioData snapshot for the dashboard, optionally scoped to one account and/or time period."""
-    return portfolio.build_portfolio(account=account, period=period)
+@app.get("/api/portfolio")
+def get_portfolio(account: str | None = None, period: str | None = None):
+    """Full PortfolioData snapshot for the dashboard, optionally scoped to one account and/or time period.
+
+    Returns a structured error payload instead of an unhandled 500 so the
+    frontend can always render a recovery screen.
+    """
+    try:
+        return portfolio.build_portfolio(account=account, period=period)
+    except Exception as exc:
+        logger.exception("build_portfolio failed: %s", exc)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "error": True,
+                "error_type": exc.__class__.__name__,
+                "error_detail": str(exc),
+                "recoverable": True,
+            },
+        )
 
 
 @app.get("/api/holdings", response_model=list[Holding])

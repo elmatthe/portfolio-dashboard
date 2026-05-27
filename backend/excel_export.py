@@ -301,7 +301,13 @@ def _sheet_price_history(wb: Workbook, data, start_date: date | None = None) -> 
             continue
         if start_date is not None:
             import pandas as _pd
-            df = df[df.index >= _pd.Timestamp(start_date)]
+            try:
+                if not isinstance(df.index, _pd.DatetimeIndex):
+                    df.index = _pd.to_datetime(df.index, errors="coerce")
+                    df = df[df.index.notna()]
+                df = df[df.index >= _pd.Timestamp(start_date)]
+            except (TypeError, ValueError):
+                pass
             if df.empty:
                 continue
         col_letter = get_column_letter(col_offset)

@@ -10,7 +10,7 @@ SQLite's INSERT OR IGNORE so collisions are skipped, not raised.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 import pandas as pd
@@ -96,13 +96,25 @@ def upsert_transactions(transactions: list[Transaction]) -> UpsertResult:
 
 
 def get_all_transactions() -> list[Transaction]:
-    """All transactions, chronological — the canonical input to ACB/portfolio."""
+    """All transactions, chronological — the canonical input to ACB/portfolio.
+
+    Rows with unparseable dates or invalid data are silently skipped so that a
+    single corrupt row can never crash the entire portfolio computation.
+    """
+    import logging
+    log = logging.getLogger(__name__)
     engine = db.get_engine()
     with engine.connect() as conn:
         rows = conn.execute(
             select(db.transactions).order_by(db.transactions.c.transaction_date.asc(), db.transactions.c.id.asc())
         ).mappings().all()
-    return [_row_to_transaction(r) for r in rows]
+    result: list[Transaction] = []
+    for r in rows:
+        try:
+            result.append(_row_to_transaction(r))
+        except Exception as exc:
+            log.warning("Skipping corrupt transaction row (hash=%s): %s", r.get("hash", "?"), exc)
+    return result
 
 
 def has_any_transactions() -> bool:
@@ -121,17 +133,36 @@ def transaction_count() -> int:
     return len(rows)
 
 
+def _parse_date(raw: Any) -> date | None:
+    """Best-effort date parse from a SQLite text column. Returns None on failure."""
+    if raw is None:
+        return None
+    if isinstance(raw, date):
+        return raw
+    try:
+        return datetime.fromisoformat(str(raw)).date()
+    except (ValueError, TypeError):
+        pass
+    try:
+        import pandas as _pd
+        ts = _pd.to_datetime(str(raw), errors="coerce")
+        if _pd.notna(ts):
+            return ts.date()
+    except Exception:
+        pass
+    return None
+
+
 def _row_to_transaction(r: dict[str, Any]) -> Transaction:
     """Hydrate a Transaction Pydantic model from a SQLAlchemy row mapping."""
+    tx_date = _parse_date(r["transaction_date"])
+    if tx_date is None:
+        raise ValueError(f"Unparseable transaction_date: {r.get('transaction_date')!r}")
     return Transaction(
         hash=r["hash"],
         broker=r["broker"],
-        transaction_date=datetime.fromisoformat(r["transaction_date"]).date()
-        if r["transaction_date"]
-        else None,
-        settlement_date=datetime.fromisoformat(r["settlement_date"]).date()
-        if r["settlement_date"]
-        else None,
+        transaction_date=tx_date,
+        settlement_date=_parse_date(r["settlement_date"]),
         action=r["action"],
         raw_symbol=r["raw_symbol"],
         resolved_ticker=r["resolved_ticker"],
@@ -312,7 +343,10 @@ def get_price_history(ticker: str, start: str | None = None) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
     df = pd.DataFrame(rows)
-    df["date"] = pd.to_datetime(df["date"])
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"])
+    if df.empty:
+        return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
     df = df.set_index("date")
     return df[["open", "high", "low", "close", "volume"]]
 
