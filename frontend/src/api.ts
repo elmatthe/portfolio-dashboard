@@ -110,8 +110,23 @@ export const api = {
     }
     return res.json();
   },
-  portfolio: (account?: string, period?: string) =>
-    request<PortfolioData>(`/api/portfolio${withAccountAndPeriod(account, period)}`),
+  portfolio: async (account?: string, period?: string): Promise<PortfolioData> => {
+    const res = await fetch(
+      `${BASE}/api/portfolio${withAccountAndPeriod(account, period)}`,
+      { headers: { "Content-Type": "application/json" } },
+    );
+    const body = await res.json();
+    if (body.error) {
+      const err = new Error(body.error_detail || "Portfolio computation failed");
+      (err as any).recoverable = body.recoverable ?? true;
+      (err as any).errorType = body.error_type;
+      throw err;
+    }
+    if (!res.ok) {
+      throw new Error(body.detail || body.error || res.statusText);
+    }
+    return body as PortfolioData;
+  },
   holdings: (account?: string, period?: string) =>
     request<Holding[]>(`/api/holdings${withAccountAndPeriod(account, period)}`),
   capitalGains: (account?: string, period?: string) =>

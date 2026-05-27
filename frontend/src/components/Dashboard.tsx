@@ -36,6 +36,7 @@ export default function Dashboard({ onImportNew, onNavigate }: Props) {
   useAutoRefreshPrices(30);
 
   const [settingsFromTfsa, setSettingsFromTfsa] = useState(false);
+  const [showErrorSettings, setShowErrorSettings] = useState(false);
   const [simulatorOpen, setSimulatorOpen] = useState(false);
 
   if (portfolio.isLoading) {
@@ -47,12 +48,62 @@ export default function Dashboard({ onImportNew, onNavigate }: Props) {
   }
   if (portfolio.isError || !portfolio.data) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-8">
-        <div className="card max-w-md">
-          <div className="font-semibold mb-2">Couldn't load portfolio</div>
-          <p className="text-sm text-text-muted">{(portfolio.error as Error)?.message}</p>
+      <>
+        <div className="min-h-screen flex items-center justify-center p-8">
+          <div className="card max-w-lg">
+            <div className="text-xl font-semibold mb-2">Couldn't load portfolio</div>
+            <p className="text-sm text-text-muted mb-2">
+              {(portfolio.error as Error)?.message}
+            </p>
+            <p className="text-sm text-text-muted mb-4">
+              This can happen after importing a file with unexpected data.
+              You can retry, open settings to manage your data, or reset the
+              app to recover.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="btn-primary"
+                onClick={() => portfolio.refetch()}
+              >
+                Retry
+              </button>
+              <button
+                className="btn-ghost border border-border"
+                onClick={() => setShowErrorSettings(true)}
+              >
+                Open Settings
+              </button>
+              <button
+                className="btn-ghost border border-red-500/30 text-red-400 hover:bg-red-500/10"
+                onClick={async () => {
+                  if (
+                    !window.confirm(
+                      "This will delete ALL profiles, data, and cache — the app " +
+                        "returns to a fresh-install state. This cannot be undone.\n\n" +
+                        "Are you sure?",
+                    )
+                  )
+                    return;
+                  try {
+                    await fetch(
+                      `${(globalThis as any).__BASE_URL ?? ""}/api/app/reset`,
+                      { method: "POST" },
+                    );
+                    window.location.reload();
+                  } catch {
+                    window.location.reload();
+                  }
+                }}
+              >
+                Reset App Data
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+        {showErrorSettings && (
+          <SettingsPage onClose={() => setShowErrorSettings(false)} />
+        )}
+      </>
     );
   }
 
