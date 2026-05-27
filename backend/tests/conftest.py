@@ -21,13 +21,18 @@ TEST_DATA = PROJECT_ROOT / "test_data"
 
 @pytest.fixture(autouse=True)
 def _isolated_db(tmp_path):
-    """Point the DB engine at a fresh temporary SQLite file for every test."""
+    """Point the DB engine at a fresh temporary SQLite file for every test.
+
+    Also isolates the profiles directory so factory_reset tests don't
+    clobber dev data.
+    """
     os.environ["PORTFOLIO_DB_PATH"] = str(tmp_path / "test_portfolio.db")
-    os.environ.pop("PORTFOLIO_PROFILES_DIR", None)
+    os.environ["PORTFOLIO_PROFILES_DIR"] = str(tmp_path / "profiles")
 
     from backend import db
-    db.reset_engine_for_tests()
+    db.dispose_engine(reset_path=True)
     db.get_engine()
     yield
-    db.reset_engine_for_tests()
+    db.dispose_engine(reset_path=True)
     os.environ.pop("PORTFOLIO_DB_PATH", None)
+    os.environ.pop("PORTFOLIO_PROFILES_DIR", None)

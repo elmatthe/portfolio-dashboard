@@ -260,12 +260,14 @@ def reset_engine_for_tests() -> None:
     dispose_engine()
 
 
-def dispose_engine() -> None:
+def dispose_engine(*, reset_path: bool = False) -> None:
     """Dispose the global engine so the next get_engine() rebinds."""
-    global _engine
+    global _engine, _db_path_override
     if _engine is not None:
         _engine.dispose()
         _engine = None
+    if reset_path:
+        _db_path_override = None
 
 
 def db_size_kb() -> int:
