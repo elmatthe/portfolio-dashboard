@@ -19,8 +19,8 @@ let BACKEND_PORT = PREFERRED_BACKEND_PORT;
 const HEALTH_TIMEOUT_MS = 30_000;
 const HEALTH_POLL_MS = 200;
 
-function healthUrl() {
-  return `http://127.0.0.1:${BACKEND_PORT}/health`;
+function healthUrl(port) {
+  return `http://127.0.0.1:${port || BACKEND_PORT}/health`;
 }
 
 function findFreePort(preferred) {
@@ -41,6 +41,62 @@ function findFreePort(preferred) {
       server.close(() => resolve(preferred));
     });
   });
+}
+
+/**
+ * Check if a port has a live backend that responds to /health.
+ * Resolves true if healthy, false otherwise. Never rejects.
+ */
+function isPortHealthy(port) {
+  return new Promise((resolve) => {
+    const req = http.get(healthUrl(port), (res) => {
+      res.resume();
+      resolve(res.statusCode === 200);
+    });
+    req.on("error", () => resolve(false));
+    req.setTimeout(2000, () => { req.destroy(); resolve(false); });
+  });
+}
+
+/**
+ * Attempt to gracefully shut down a backend on `port` via POST /api/shutdown.
+ * If that fails, fall back to `taskkill` on Windows to kill backend.exe
+ * processes listening on that port.
+ */
+async function killStaleBackend(port) {
+  console.log(`[electron] Attempting to shut down stale backend on port ${port}`);
+  // Try the graceful shutdown endpoint first.
+  const shutdownOk = await new Promise((resolve) => {
+    const req = http.request(
+      `http://127.0.0.1:${port}/api/shutdown`,
+      { method: "POST", timeout: 3000 },
+      (res) => { res.resume(); res.on("end", () => resolve(true)); },
+    );
+    req.on("error", () => resolve(false));
+    req.on("timeout", () => { req.destroy(); resolve(false); });
+    req.end();
+  });
+  if (shutdownOk) {
+    // Give it a moment to exit.
+    await new Promise((r) => setTimeout(r, 1500));
+    const stillAlive = await isPortHealthy(port);
+    if (!stillAlive) {
+      console.log("[electron] Stale backend shut down gracefully");
+      return;
+    }
+  }
+  // Graceful shutdown failed — force-kill on Windows.
+  if (process.platform === "win32") {
+    console.log("[electron] Graceful shutdown failed, trying taskkill");
+    const { execSync } = require("node:child_process");
+    try {
+      execSync("taskkill /F /IM backend.exe", { stdio: "ignore", timeout: 5000 });
+      await new Promise((r) => setTimeout(r, 500));
+      console.log("[electron] taskkill backend.exe completed");
+    } catch (e) {
+      console.warn("[electron] taskkill failed (may not have been running):", e.message);
+    }
+  }
 }
 
 let backendProcess = null;
@@ -200,7 +256,7 @@ function waitForBackend() {
 function createSplash() {
   splashWindow = new BrowserWindow({
     width: 420,
-    height: 260,
+    height: 280,
     frame: false,
     resizable: false,
     movable: true,
@@ -217,17 +273,33 @@ function createSplash() {
   html,body{margin:0;height:100%;background:#0A0F1E;color:#F9FAFB;font-family:-apple-system,Segoe UI,Inter,sans-serif;}
   .wrap{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px;}
   .title{font-size:22px;font-weight:600;letter-spacing:-0.01em;margin-bottom:8px;}
-  .sub{color:#6B7280;font-size:13px;margin-bottom:24px;}
+  .sub{color:#6B7280;font-size:13px;margin-bottom:24px;transition:color .3s;}
   .bar{width:220px;height:3px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;position:relative;}
   .bar::after{content:"";position:absolute;left:-40%;top:0;bottom:0;width:40%;background:#3B82F6;
     border-radius:2px;animation:slide 1.2s ease-in-out infinite;}
   @keyframes slide{0%{left:-40%}100%{left:100%}}
+  .err{color:#EF4444;}
 </style></head>
 <body><div class="wrap">
   <div class="title">Portfolio Dashboard</div>
-  <div class="sub">Starting local data service…</div>
-  <div class="bar"></div>
-</div></body></html>`;
+  <div class="sub" id="status">Starting local data service…</div>
+  <div class="bar" id="bar"></div>
+</div>
+<script>
+  const el=document.getElementById('status');
+  const bar=document.getElementById('bar');
+  const start=Date.now();
+  const timer=setInterval(()=>{
+    const elapsed=Math.round((Date.now()-start)/1000);
+    if(elapsed>=25){
+      el.textContent='Still waiting… this is taking longer than expected.';
+      el.classList.add('err');
+    } else if(elapsed>=10){
+      el.textContent='Starting local data service… ('+elapsed+'s)';
+    }
+  },1000);
+</script>
+</body></html>`;
   splashWindow.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(splashHtml));
 }
 
@@ -294,6 +366,18 @@ async function createWindow() {
 app.whenReady().then(async () => {
   try {
     createSplash();
+
+    // Check if a stale backend is already running on the preferred port.
+    // This happens when the previous Electron process was force-killed
+    // (Task Manager, crash) and didn't get a chance to shut down its backend.
+    const staleAlive = await isPortHealthy(PREFERRED_BACKEND_PORT);
+    if (staleAlive) {
+      console.log(`[electron] Stale backend detected on port ${PREFERRED_BACKEND_PORT} — killing it`);
+      await killStaleBackend(PREFERRED_BACKEND_PORT);
+      // Brief pause for the port to be released by the OS.
+      await new Promise((r) => setTimeout(r, 500));
+    }
+
     BACKEND_PORT = await findFreePort(PREFERRED_BACKEND_PORT);
     console.log(`[electron] Backend port resolved to ${BACKEND_PORT}`);
     startBackend();
@@ -302,10 +386,21 @@ app.whenReady().then(async () => {
   } catch (err) {
     console.error("[electron] Failed to start:", err);
     closeSplash();
-    dialog.showErrorBox(
-      "Couldn't start Portfolio Dashboard",
-      `The local data service didn't become ready in time.\n\n${err.message}`,
-    );
+    const tail = stderrTail.slice(-8).join("\n") || "(no backend output captured)";
+    const result = dialog.showMessageBoxSync({
+      type: "error",
+      title: "Couldn't start Portfolio Dashboard",
+      message: "The local data service failed to start.",
+      detail:
+        `${err.message}\n\n` +
+        `Last backend output:\n${tail}\n\n` +
+        `Log file: ${backendLogPath()}`,
+      buttons: ["Retry", "Quit"],
+      defaultId: 0,
+    });
+    if (result === 0) {
+      app.relaunch();
+    }
     app.quit();
   }
 
