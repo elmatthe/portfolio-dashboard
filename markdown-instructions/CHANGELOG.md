@@ -6,6 +6,50 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.6.1] — 2026-05-26
+
+Critical fix: app can no longer be bricked by a bad import.
+
+### Fixed
+
+- **Portfolio crash** — defensive date coercion throughout the portfolio
+  computation pipeline prevents `numpy.ndarray >= Timestamp` TypeError.
+  `store.get_price_history` uses `errors="coerce"` and drops NaT rows.
+  `get_all_transactions` silently skips corrupt rows instead of crashing.
+  All weekly-return series filtering uses a type-safe helper.
+
+- **Lockout recovery** — the "Couldn't load portfolio" screen now shows
+  Retry, Open Settings, and Reset App Data buttons. Settings is reachable
+  even when `/api/portfolio` fails. The endpoint catches computation errors
+  and returns a structured payload (never an unhandled 500).
+
+### Added
+
+- **Pre-insert validation** — imported rows are validated after parsing:
+  dates must be parseable, required numerics must be finite. Invalid rows
+  are skipped with a clear summary ("Imported 30 of 35; 5 rows skipped").
+  Fully-malformed files return 400 with an explanation.
+
+- **Factory reset** — Settings → Data → "Reset app to factory state"
+  deletes ALL profiles, databases, caches, and settings. Confirmation-gated
+  (type "RESET" to confirm). Also reachable from the crash recovery screen.
+  Backend: `POST /api/app/reset`.
+
+- **Corrupt-DB detection** — on launch, the backend checks DB health and
+  reports via `/health`. The frontend shows a dedicated recovery screen
+  if the DB is corrupt, with Retry and Reset options.
+
+- **Manual recovery path** — documented in README: delete
+  `%APPDATA%/Portfolio Dashboard` to recover from any state.
+
+- **15 new tests** — crash recovery, import validation, factory reset,
+  health check. Full suite: 95 tests, 0 failures.
+
+- **Master Debug Section 0** — Crash Recovery & Reset section added to
+  `MASTER_DEBUG_AND_TEST_RUN.md`.
+
+---
+
 ## [0.6.0] — 2026-05-25
 
 Feature release: dedicated Transactions page, manual transaction entry,
