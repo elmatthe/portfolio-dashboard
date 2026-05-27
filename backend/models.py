@@ -135,6 +135,8 @@ class ImportResult(BaseModel):
     import_duration_ms: int = 0
     detected_broker: Broker | None = None
     detected_format: str | None = None  # "xlsx", "csv", "pdf"
+    skipped_invalid: int = 0
+    validation_warnings: list[str] = Field(default_factory=list)
 
 
 class ImportInfo(BaseModel):

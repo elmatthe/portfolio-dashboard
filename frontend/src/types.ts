@@ -120,6 +120,8 @@ export interface ImportResult {
   import_duration_ms: number;
   detected_broker?: Broker | null;
   detected_format?: string | null;
+  skipped_invalid: number;
+  validation_warnings: string[];
 }
 
 export interface RealizedGain {

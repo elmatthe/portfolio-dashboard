@@ -53,6 +53,20 @@ export default function Upload({ onSuccess, onCancel }: Props) {
       if (result.skipped_duplicates > 0) {
         toast.push(`${result.skipped_duplicates} already existed — skipped`, "info");
       }
+      if (result.skipped_invalid > 0) {
+        toast.push(
+          `${result.skipped_invalid} rows skipped (invalid dates or numbers)`,
+          "warning",
+        );
+      }
+      if (
+        result.validation_warnings &&
+        result.validation_warnings.length > 0
+      ) {
+        for (const w of result.validation_warnings.slice(0, 3)) {
+          toast.push(w, "warning");
+        }
+      }
       if (result.unresolved_tickers.length > 0) {
         toast.push(
           `${result.unresolved_tickers.length} tickers couldn't be resolved`,

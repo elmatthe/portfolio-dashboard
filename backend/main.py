@@ -49,6 +49,7 @@ from backend.models import (
     UnresolvedTicker,
 )
 from backend.parser import UnknownFormatError, parse_file
+from backend.validation import validate_transactions
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -159,6 +160,17 @@ async def import_file(file: UploadFile = File(...)) -> ImportResult:
         except UnknownFormatError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+        # Validate parsed rows — reject those with bad dates or non-numeric fields.
+        vr = validate_transactions(txs)
+        txs = vr.valid
+
+        if not txs:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No valid rows found. {vr.skipped} rows skipped: "
+                + "; ".join(vr.warnings[:5]),
+            )
+
         # Resolve any tickers we haven't seen.
         # The parser already resolves common cases (`.TO` suffix, known description
         # patterns like APPLE INC → AAPL). For those we just persist the parser's
@@ -231,6 +243,8 @@ async def import_file(file: UploadFile = File(...)) -> ImportResult:
             import_duration_ms=int((time.time() - started) * 1000),
             detected_broker=fmt.broker,
             detected_format=fmt.fmt,
+            skipped_invalid=vr.skipped,
+            validation_warnings=vr.warnings[:10],
         )
     finally:
         try:
