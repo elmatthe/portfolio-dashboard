@@ -77,4 +77,17 @@
   .badge {
     @apply inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium;
   }
+  .filter-input {
+    background: rgb(var(--border-rgb) / 0.06);
+    color: rgb(var(--text-primary-rgb));
+    border: 1px solid rgb(var(--border-rgb) / var(--border-alpha));
+    @apply rounded-md text-xs;
+  }
+  .filter-input::placeholder {
+    color: rgb(var(--text-muted-rgb));
+  }
+  .filter-input option {
+    background: rgb(var(--surface-rgb));
+    color: rgb(var(--text-primary-rgb));
+  }
 }

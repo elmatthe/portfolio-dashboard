@@ -302,7 +302,7 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
         <div className="card p-3 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <select
-              className="input text-xs py-1 px-2 w-auto"
+              className="filter-input py-1.5 px-2 w-auto"
               value={filterBroker}
               onChange={(e) => setFilterBroker(e.target.value)}
             >
@@ -313,7 +313,7 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
               <option value="Manual">Manual</option>
             </select>
             <select
-              className="input text-xs py-1 px-2 w-auto"
+              className="filter-input py-1.5 px-2 w-auto"
               value={filterAccountType}
               onChange={(e) => setFilterAccountType(e.target.value)}
             >
@@ -325,7 +325,7 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
               <option value="Non-Registered">Non-Registered</option>
             </select>
             <select
-              className="input text-xs py-1 px-2 w-auto"
+              className="filter-input py-1.5 px-2 w-auto"
               value={filterCurrency}
               onChange={(e) => setFilterCurrency(e.target.value)}
             >
@@ -336,7 +336,7 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
               <option value="EUR">EUR</option>
             </select>
             <select
-              className="input text-xs py-1 px-2 w-auto"
+              className="filter-input py-1.5 px-2 w-auto"
               value={filterAction}
               onChange={(e) => setFilterAction(e.target.value)}
             >
@@ -351,7 +351,7 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
             </select>
             <input
               type="date"
-              className="input text-xs py-1 px-2 w-auto"
+              className="filter-input py-1.5 px-2 w-auto"
               value={filterDateFrom}
               onChange={(e) => setFilterDateFrom(e.target.value)}
               title="From date"
@@ -359,7 +359,7 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
             <span className="text-text-muted text-xs">to</span>
             <input
               type="date"
-              className="input text-xs py-1 px-2 w-auto"
+              className="filter-input py-1.5 px-2 w-auto"
               value={filterDateTo}
               onChange={(e) => setFilterDateTo(e.target.value)}
               title="To date"
@@ -368,7 +368,7 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
               <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted" />
               <input
                 type="text"
-                className="input text-xs py-1 pl-6 pr-2 w-full"
+                className="filter-input py-1.5 pl-6 pr-2 w-full"
                 placeholder="Search ticker or description…"
                 value={searchText}
                 onChange={(e) => handleSearchChange(e.target.value)}
