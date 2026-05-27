@@ -340,6 +340,31 @@ export default function SettingsPage({ onClose }: Props) {
               <Trash2 size={14} /> Clear all data
             </button>
           </div>
+
+          <div className="border-t border-border pt-4 mt-4">
+            <p className="text-xs text-text-muted mb-2">
+              Factory reset deletes <strong>all</strong> profiles, databases,
+              caches, and settings — the app returns to its fresh-install state.
+              This cannot be undone.
+            </p>
+            <button
+              className="btn-ghost text-red-400 border border-red-500/30 hover:bg-red-500/10"
+              onClick={async () => {
+                const typed = window.prompt(
+                  'Type "RESET" to confirm you want to delete all data and return to factory state:',
+                );
+                if (typed !== "RESET") return;
+                try {
+                  await api.factoryReset();
+                  window.location.reload();
+                } catch (e: any) {
+                  toast.push(e.message || "Reset failed", "error");
+                }
+              }}
+            >
+              <Trash2 size={14} /> Reset app to factory state
+            </button>
+          </div>
         </Section>
       </div>
     </Overlay>

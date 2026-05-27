@@ -201,6 +201,8 @@ export const api = {
     request<AppSettings>("/api/settings", { method: "PATCH", body: JSON.stringify(s) }),
   clearData: () =>
     request<{ success: boolean; detail: string }>("/api/data/clear", { method: "POST" }),
+  factoryReset: () =>
+    request<{ success: boolean; detail: string }>("/api/app/reset", { method: "POST" }),
   exportJsonUrl: () => `${BASE}/api/data/export-json`,
 
   // ---------- profiles ----------

@@ -204,6 +204,42 @@ def mark_profile_imported(profile_id: str) -> None:
     save_profiles(state)
 
 
+def factory_reset() -> Profile:
+    """Delete ALL profiles, databases, and caches — return to fresh-install state.
+
+    Returns the newly-created default profile so the caller can rebind the engine.
+    """
+    base = profiles_dir()
+
+    # 1. Remove every per-profile DB directory
+    profiles_subdir = base / "profiles"
+    if profiles_subdir.exists():
+        shutil.rmtree(profiles_subdir, ignore_errors=True)
+
+    # 2. Remove the manifest
+    pj = profiles_json_path()
+    if pj.exists():
+        pj.unlink(missing_ok=True)
+
+    # 3. Remove any legacy DB files at the top level
+    for f in base.glob("*.db"):
+        try:
+            f.unlink(missing_ok=True)
+        except Exception as e:
+            logger.warning("factory_reset: could not delete %s: %s", f, e)
+    for f in base.glob("*.db-wal"):
+        f.unlink(missing_ok=True)
+    for f in base.glob("*.db-shm"):
+        f.unlink(missing_ok=True)
+
+    # 4. Recreate a fresh default profile
+    fresh = _create_default_profile_file()
+    save_profiles(fresh)
+    profile_db_path(fresh.active_profile_id)
+
+    return fresh.profiles[0]
+
+
 def rename_profile(profile_id: str, new_name: str, new_color: str | None = None) -> Profile | None:
     """Change a profile's display name and/or accent color in place."""
     state = load_profiles()

@@ -85,10 +85,8 @@ export default function Dashboard({ onImportNew, onNavigate }: Props) {
                   )
                     return;
                   try {
-                    await fetch(
-                      `${(globalThis as any).__BASE_URL ?? ""}/api/app/reset`,
-                      { method: "POST" },
-                    );
+                    const { api: resetApi } = await import("../api");
+                    await resetApi.factoryReset();
                     window.location.reload();
                   } catch {
                     window.location.reload();

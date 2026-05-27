@@ -257,6 +257,11 @@ def _migrate_schema(engine: Engine) -> None:
 
 def reset_engine_for_tests() -> None:
     """Dispose the global engine — used by tests to swap PORTFOLIO_DB_PATH."""
+    dispose_engine()
+
+
+def dispose_engine() -> None:
+    """Dispose the global engine so the next get_engine() rebinds."""
     global _engine
     if _engine is not None:
         _engine.dispose()

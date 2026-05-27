@@ -893,6 +893,29 @@ def get_tfsa_room(
         raise HTTPException(status_code=500, detail=f"Could not compute TFSA room: {e}")
 
 
+# ---------- factory reset ----------
+
+@app.post("/api/app/reset")
+def factory_reset() -> dict:
+    """Delete ALL profiles, databases, caches, and settings — back to fresh-install.
+
+    This is the nuclear option: every on-disk artifact the app creates is
+    removed and a single default profile is recreated. The frontend should
+    reload after this call completes.
+    """
+    try:
+        db.dispose_engine()
+        new_profile = profiles.factory_reset()
+        db.set_db_path(profiles.profile_db_path(new_profile.id))
+        db.get_engine()
+        market_data.clear_memo()
+        logger.info("Factory reset complete. New default profile: %s", new_profile.id)
+        return {"success": True, "detail": "App reset to factory state.", "new_profile_id": new_profile.id}
+    except Exception as e:
+        logger.exception("factory_reset failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Could not reset app: {e}")
+
+
 # ---------- data management (Settings → Data section) ----------
 
 @app.post("/api/data/clear")
