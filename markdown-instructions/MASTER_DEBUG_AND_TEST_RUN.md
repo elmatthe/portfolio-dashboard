@@ -212,7 +212,65 @@ Verify that the app can never be permanently bricked by bad data.
 ### 0-F: Tests
 ```
 [  ] pytest backend/tests/test_crash_recovery.py — all 15 tests pass
-[  ] Full pytest suite — 95 tests pass, 0 failures
+[  ] Full pytest suite — 118 tests pass, 0 failures
+```
+
+---
+
+## SECTION 11b — Multi-Currency FX
+
+Verify FX conversion across GBP, EUR, JPY, AUD, CHF using the HSBC fixture.
+
+### Static fallback rates
+```
+[  ] CAD = 1.0 (identity)
+[  ] USD rate in [1.30, 1.45]
+[  ] GBP rate in [1.60, 1.85]
+[  ] EUR rate in [1.40, 1.60]
+[  ] JPY rate in [0.005, 0.015] (very small — large nominal amounts)
+[  ] AUD rate in [0.80, 1.00]
+[  ] CHF rate in [1.40, 1.60]
+[  ] HKD, SEK, NOK have non-zero rates
+```
+
+### FX on parsed HSBC rows
+```
+[  ] Every row has non-null fx_rate_to_cad
+[  ] Foreign-currency rows have fx_rate != 1.0
+[  ] net_cad ≈ net_amount × fx_rate (within 1% — broker rounding accepted)
+```
+
+### JPY edge cases
+```
+[  ] JPY buy (¥325,000) converts to reasonable CAD (~$2,957)
+[  ] JPY dividend (¥7,000) converts to reasonable CAD (~$63)
+[  ] No overflow or precision loss on large JPY nominal amounts
+```
+
+### Foreign sell → CAD gain
+```
+[  ] GBP sell → positive CAD proceeds
+[  ] USD sell → positive CAD proceeds
+[  ] JPY sell → positive CAD proceeds
+```
+
+### Dashboard with mixed currencies
+```
+[  ] GET /api/portfolio returns 200 after HSBC import
+[  ] Transactions include all 7 currencies (CAD, USD, GBP, EUR, JPY, AUD, CHF)
+[  ] Combined totals non-zero
+[  ] All period filters (1m/3m/6m/ytd/1y/all) return 200
+```
+
+### Dashboard currency view behavior (document, do not fix)
+```
+[  ] Combined CAD: foreign holdings converted at live/static rate
+[  ] Combined USD: foreign holdings converted at CAD→USD rate
+[  ] CAD only: shows only CAD-denominated holdings
+[  ] USD only: shows only USD-denominated holdings
+[  ] NOTE: holdings in GBP/EUR/JPY/AUD/CHF show under Combined views but
+      are excluded from CAD-only and USD-only views (by design — those views
+      filter by native currency, not converted currency)
 ```
 
 ---
