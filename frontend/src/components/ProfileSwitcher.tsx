@@ -353,7 +353,7 @@ function AddProfileModal({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. John's Portfolio"
-            className="w-full bg-white/5 border border-border rounded-md px-3 py-2 text-sm mb-4 focus:outline-none focus:border-accent"
+            className="input w-full mb-4"
             onKeyDown={(e) => {
               if (e.key === "Enter" && name.trim() && !create.isPending) create.mutate();
             }}

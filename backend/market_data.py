@@ -258,7 +258,7 @@ def get_quote(ticker: str, max_age_minutes: int = 15) -> QuoteResult:
     except Exception as e:
         logger.warning("Live quote failed for %s: %s", ticker, e)
 
-    # Tier 4: stale fallback
+    # Tier 4: stale fallback (price_cache row past TTL)
     if cached:
         return QuoteResult(
             ticker=ticker,
@@ -267,6 +267,31 @@ def get_quote(ticker: str, max_age_minutes: int = 15) -> QuoteResult:
             stale=True,
             fetched_at=cached["fetched_at"],
         )
+
+    # Tier 5: last-resort fallback — last daily close from price_history.
+    # If a manual entry just added a ticker and the live fetch failed
+    # (rate-limit, network blip, yfinance returning None), we'd otherwise show
+    # "—" on the card even though we may already have months of cached daily
+    # closes for this ticker. Surface that as a stale price instead.
+    try:
+        hist = store.get_price_history(ticker)
+        if hist is not None and not hist.empty and "close" in hist.columns:
+            last_close = hist["close"].dropna()
+            if not last_close.empty:
+                price = float(last_close.iloc[-1])
+                currency_fallback: Currency = (
+                    "CAD" if ticker.endswith((".TO", ".V", ".NE", ".CN")) else "USD"
+                )
+                return QuoteResult(
+                    ticker=ticker,
+                    price=price,
+                    currency=currency_fallback,
+                    stale=True,
+                    fetched_at=None,
+                )
+    except Exception as e:
+        logger.warning("price_history fallback failed for %s: %s", ticker, e)
+
     return QuoteResult(ticker=ticker, price=None, currency=None, stale=True, fetched_at=None)
 
 

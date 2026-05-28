@@ -103,7 +103,7 @@ export default function RebalancePanel({ holdings, totalEquityCad }: Props) {
                       max={100}
                       value={t.target_pct}
                       onChange={(e) => setTarget(i, parseFloat(e.target.value || "0"))}
-                      className="bg-white/5 border border-border rounded-md px-2 py-1 text-sm w-20 text-right num"
+                      className="input w-20 text-right num"
                     />
                     <span className="text-xs text-text-muted ml-1">%</span>
                   </td>
@@ -168,7 +168,7 @@ export default function RebalancePanel({ holdings, totalEquityCad }: Props) {
                 step={100}
                 value={newMoney}
                 onChange={(e) => setNewMoney(parseFloat(e.target.value || "0"))}
-                className="bg-white/5 border border-border rounded-md px-2 py-1 text-sm w-32 text-right num"
+                className="input w-32 text-right num"
               />
               <span className="text-xs text-text-muted">CAD</span>
             </span>

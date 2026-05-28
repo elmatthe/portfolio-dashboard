@@ -95,13 +95,13 @@ export default function SimulatorModal({ holdings, onClose }: Props) {
                 value={ticker}
                 onChange={(e) => setTicker(e.target.value.toUpperCase())}
                 placeholder="e.g. VEQT.TO"
-                className="bg-white/5 border border-border rounded-md px-3 py-2 text-sm w-full"
+                className="input w-full"
               />
             ) : (
               <select
                 value={ticker}
                 onChange={(e) => setTicker(e.target.value)}
-                className="bg-white/5 border border-border rounded-md px-3 py-2 text-sm w-full"
+                className="input w-full"
               >
                 {holdings.map((h) => (
                   <option
@@ -121,7 +121,7 @@ export default function SimulatorModal({ holdings, onClose }: Props) {
                 <select
                   value={accountType}
                   onChange={(e) => setAccountType(e.target.value as AccountType)}
-                  className="bg-white/5 border border-border rounded-md px-3 py-2 text-sm w-full"
+                  className="input w-full"
                 >
                   {accountChoices.map((a) => (
                     <option key={a} value={a}>{a}</option>
@@ -135,7 +135,7 @@ export default function SimulatorModal({ holdings, onClose }: Props) {
                   step={1}
                   value={shares}
                   onChange={(e) => setShares(parseFloat(e.target.value || "0"))}
-                  className="bg-white/5 border border-border rounded-md px-3 py-2 text-sm w-full"
+                  className="input w-full"
                 />
               </Field>
             </>
@@ -150,7 +150,7 @@ export default function SimulatorModal({ holdings, onClose }: Props) {
                   step={100}
                   value={amount}
                   onChange={(e) => setAmount(parseFloat(e.target.value || "0"))}
-                  className="bg-white/5 border border-border rounded-md px-3 py-2 text-sm w-full"
+                  className="input w-full"
                 />
               </Field>
               <Field label="Investment date">
@@ -158,7 +158,7 @@ export default function SimulatorModal({ holdings, onClose }: Props) {
                   type="date"
                   value={investDate}
                   onChange={(e) => setInvestDate(e.target.value)}
-                  className="bg-white/5 border border-border rounded-md px-3 py-2 text-sm w-full"
+                  className="input w-full"
                 />
               </Field>
             </>

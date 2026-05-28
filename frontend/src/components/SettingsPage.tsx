@@ -51,6 +51,7 @@ export default function SettingsPage({ onClose }: Props) {
   const [draft, setDraft] = useState<AppSettings | null>(null);
   const [profileName, setProfileName] = useState("");
   const [profileColor, setProfileColor] = useState("#3B82F6");
+  const [resetOpen, setResetOpen] = useState(false);
 
   // Initialise the local draft once the settings load.
   useEffect(() => {
@@ -159,7 +160,7 @@ export default function SettingsPage({ onClose }: Props) {
               type="text"
               value={profileName}
               onChange={(e) => setProfileName(e.target.value)}
-              className="bg-white/5 border border-border rounded-md px-3 py-2 text-sm w-full"
+              className="input w-full"
             />
           </Field>
           <Field label="Accent color">
@@ -225,7 +226,7 @@ export default function SettingsPage({ onClose }: Props) {
             <select
               value={draft.tax_province}
               onChange={(e) => set("tax_province", e.target.value)}
-              className="bg-white/5 border border-border rounded-md px-3 py-2 text-sm"
+              className="input"
             >
               {PROVINCES.map((p) => (
                 <option key={p} value={p}>{p}</option>
@@ -246,7 +247,7 @@ export default function SettingsPage({ onClose }: Props) {
                 set("tfsa_birth_year", e.target.value ? parseInt(e.target.value, 10) : null)
               }
               placeholder="e.g. 1995"
-              className="bg-white/5 border border-border rounded-md px-3 py-2 text-sm w-40"
+              className="input w-40"
             />
           </Field>
           <Field label="Year you became a Canadian resident">
@@ -259,7 +260,7 @@ export default function SettingsPage({ onClose }: Props) {
                 set("tfsa_resident_since", e.target.value ? parseInt(e.target.value, 10) : null)
               }
               placeholder="e.g. 2018"
-              className="bg-white/5 border border-border rounded-md px-3 py-2 text-sm w-40"
+              className="input w-40"
             />
           </Field>
         </Section>
@@ -270,7 +271,7 @@ export default function SettingsPage({ onClose }: Props) {
             <select
               value={draft.default_period}
               onChange={(e) => set("default_period", e.target.value as AppSettings["default_period"])}
-              className="bg-white/5 border border-border rounded-md px-3 py-2 text-sm"
+              className="input"
             >
               {PERIODS.map((p) => (
                 <option key={p.value} value={p.value}>{p.label}</option>
@@ -283,7 +284,7 @@ export default function SettingsPage({ onClose }: Props) {
               onChange={(e) =>
                 set("default_currency_view", e.target.value as AppSettings["default_currency_view"])
               }
-              className="bg-white/5 border border-border rounded-md px-3 py-2 text-sm"
+              className="input"
             >
               {CURRENCY_VIEWS.map((v) => (
                 <option key={v.value} value={v.value}>{v.label}</option>
@@ -314,7 +315,7 @@ export default function SettingsPage({ onClose }: Props) {
             <select
               value={draft.price_refresh_interval_min}
               onChange={(e) => set("price_refresh_interval_min", parseInt(e.target.value, 10))}
-              className="bg-white/5 border border-border rounded-md px-3 py-2 text-sm"
+              className="input"
             >
               {REFRESH_INTERVALS.map((m) => (
                 <option key={m} value={m}>{m} minutes</option>
@@ -349,25 +350,100 @@ export default function SettingsPage({ onClose }: Props) {
             </p>
             <button
               className="btn-ghost text-red-400 border border-red-500/30 hover:bg-red-500/10"
-              onClick={async () => {
-                const typed = window.prompt(
-                  'Type "RESET" to confirm you want to delete all data and return to factory state:',
-                );
-                if (typed !== "RESET") return;
-                try {
-                  await api.factoryReset();
-                  window.location.reload();
-                } catch (e: any) {
-                  toast.push(e.message || "Reset failed", "error");
-                }
-              }}
+              onClick={() => setResetOpen(true)}
             >
               <Trash2 size={14} /> Reset app to factory state
             </button>
           </div>
         </Section>
       </div>
+      {resetOpen && (
+        <FactoryResetConfirm
+          onClose={() => setResetOpen(false)}
+          onError={(msg) => toast.push(msg, "error")}
+        />
+      )}
     </Overlay>
+  );
+}
+
+function FactoryResetConfirm({
+  onClose,
+  onError,
+}: {
+  onClose: () => void;
+  onError: (msg: string) => void;
+}) {
+  // Replaces the previous window.prompt — that API is disabled in Electron and
+  // silently returns, which is why the button appeared to do nothing in 0.6.2.
+  // This inline confirm uses ModalPortal (already shown to work in Electron)
+  // with a type-to-confirm input.
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const canConfirm = typed.trim().toUpperCase() === "RESET";
+
+  async function doReset() {
+    if (!canConfirm) return;
+    setBusy(true);
+    try {
+      await api.factoryReset();
+      window.location.reload();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Reset failed";
+      onError(msg);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ModalPortal
+      onClose={busy ? () => {} : onClose}
+      backdropClassName="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="factory-reset-title"
+        className="card max-w-md w-full"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 id="factory-reset-title" className="text-lg font-semibold mb-2">
+          Reset app to factory state?
+        </h3>
+        <p className="text-sm text-text-muted mb-3">
+          This permanently deletes <strong>all</strong> profiles, databases,
+          and caches. The app will return to its fresh-install state. This
+          action cannot be undone.
+        </p>
+        <label className="block text-xs text-text-muted mb-1">
+          Type <span className="font-mono text-text-primary">RESET</span> to confirm:
+        </label>
+        <input
+          autoFocus
+          type="text"
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && canConfirm) doReset();
+          }}
+          placeholder="RESET"
+          className="input w-full mb-4"
+          disabled={busy}
+        />
+        <div className="flex justify-end gap-2">
+          <button className="btn-ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            className="btn-ghost text-red-400 border border-red-500/30 hover:bg-red-500/10 disabled:opacity-50"
+            onClick={doReset}
+            disabled={!canConfirm || busy}
+          >
+            <Trash2 size={14} /> {busy ? "Resetting…" : "Reset app"}
+          </button>
+        </div>
+      </div>
+    </ModalPortal>
   );
 }
 

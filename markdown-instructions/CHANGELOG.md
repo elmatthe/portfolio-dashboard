@@ -6,6 +6,48 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.6.3] — 2026-05-27
+
+Bug-fix release addressing four regressions found while testing 0.6.2.
+
+### Fixed
+
+- **Clamped period returns** — selecting a fixed window (1Y / 3Y / etc.) on
+  a portfolio younger than that window double-counted the first deposit:
+  it appeared inside both `period_start_value_cad` (because the first
+  weekly snapshot already includes it) and `net_dep_in_period`. Result
+  was an understated Period Return $ (e.g. 3Y showing $1307 vs lifetime
+  $1653 — off by roughly the first deposit's value). Now when the window
+  clamps to the first transaction date, start value is forced to 0 and
+  the Modified-Dietz numerator equals lifetime P&L within $0.01.
+  Regression tests in `test_combined_stats.py::TestClampedPeriodReconciles`.
+
+- **Form input contrast** — Add Transaction modal inputs referenced a
+  `.input` Tailwind class that wasn't defined, so every field rendered as
+  white-on-white. Defined `.input` in `index.css` using the same design
+  tokens as `.filter-input` (theme-aware background, border, placeholder,
+  focus ring). Audited every other form using the legacy
+  `bg-white/5 border border-border …` verbose pattern (Settings, Profile
+  create/rename, Alerts, Reports, Simulator, Rebalance, Historical chart,
+  Unresolved tickers panel) and migrated all of them to `.input`.
+
+- **Manual-entry price seeding** — adding a ticker by hand (e.g. RBC.TO)
+  no longer left "Current price: —" on the holding card. After a manual
+  buy/sell/dividend insert, the API now calls `resolve_ticker` →
+  `ensure_history` → `get_quote` for the new ticker so the price cache
+  and history series are populated before the dashboard renders.
+  `market_data.get_quote` also gained a final-tier fallback: if both the
+  live yfinance fetch and the cached price are unavailable, return the
+  last close from `price_history` (flagged stale) rather than `None`.
+
+- **Factory reset silent failure** — the Settings "Reset app to factory
+  state" button used `window.prompt` for type-to-confirm, which is
+  disabled in Electron's renderer and returned `null` immediately, so
+  the handler short-circuited with no UI feedback. Replaced with a
+  proper `ModalPortal`-based confirmation dialog containing a text input.
+
+---
+
 ## [0.6.2] — 2026-05-27
 
 UI polish, navigation, and FX verification.

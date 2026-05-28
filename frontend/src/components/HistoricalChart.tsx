@@ -83,7 +83,7 @@ export default function HistoricalChart({ ticker, acb, holdings, onChangeTicker 
     <div className="card">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <select
-          className="bg-white/5 border border-border rounded-md px-3 py-1.5 text-sm"
+          className="input"
           value={ticker}
           onChange={(e) => onChangeTicker(e.target.value)}
         >

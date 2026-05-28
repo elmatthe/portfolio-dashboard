@@ -53,7 +53,7 @@ export default function UnresolvedTickersPanel({ tickers }: Props) {
                 placeholder="e.g. AAPL or VEQT.TO"
                 value={edits[t.raw_symbol] || ""}
                 onChange={(e) => setEdits({ ...edits, [t.raw_symbol]: e.target.value })}
-                className="bg-white/5 border border-border rounded-md px-2 py-1 text-xs num w-40"
+                className="input num w-40 text-xs"
               />
               <button
                 disabled={!edits[t.raw_symbol]}

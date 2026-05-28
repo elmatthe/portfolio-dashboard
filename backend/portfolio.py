@@ -311,24 +311,36 @@ def build_portfolio(
     # broker, etc.) — there, `bal.total_equity_cad` is overwritten by whichever
     # account_type bucket the dict iteration lands on last. The value-history walk
     # filters txs by account_number per row, so it stays accurate per account.
+    # When the requested period is clamped to the first transaction date (i.e.
+    # the user picked 3Y on an 18-month-old portfolio), there were no holdings
+    # before period_start by definition. Treat it the same as "all" — start
+    # value = 0, every deposit since inception counts as a cash flow — so the
+    # Modified-Dietz numerator equals lifetime P&L. Without this, the first
+    # deposit gets counted twice (once inside period_start_value_cad because
+    # the first weekly snapshot already includes it, and again in
+    # net_dep_in_period), making the clamped period understate gain by roughly
+    # the first deposit's value.
+    treat_as_lifetime = period_key == "all" or period_clamped
+
     if period_active:
         all_history = portfolio_value_history(account=active.account_number or "all")
-        period_start_total = _value_history_at(all_history, period_start) if period_key != "all" else 0.0
+        period_start_total = 0.0 if treat_as_lifetime else _value_history_at(all_history, period_start)
         period_end_total = all_history[-1].total_cad if all_history else 0.0
         for bal in [*accounts, combined]:
             bal.period_label = period_key
             # Per-account period start AND end value from the same per-account
             # value-history series — keeps both endpoints consistent and per-
             # account-number-accurate. For the combined row, reuse all_history.
-            # For the lifetime "all" view, start value is forced to 0 so the
-            # denominator falls through to total net deposits (the only
-            # meaningful base for lifetime ROI).
+            # For a lifetime-equivalent window (period="all" or a clamped fixed
+            # window) start value is forced to 0 so the denominator falls
+            # through to total net deposits — the only meaningful base for
+            # lifetime ROI.
             if bal is combined:
                 bal.period_start_value_cad = period_start_total
                 bal_cur = period_end_total
             else:
                 slim = portfolio_value_history(account=bal.account_number)
-                bal.period_start_value_cad = 0.0 if period_key == "all" else _value_history_at(slim, period_start)
+                bal.period_start_value_cad = 0.0 if treat_as_lifetime else _value_history_at(slim, period_start)
                 bal_cur = slim[-1].total_cad if slim else 0.0
             # Modified Dietz: return = (end - start - ΣCF) / (start + Σ(CF × w))
             # where w_i = (days_remaining_after_CF) / total_days_in_period.

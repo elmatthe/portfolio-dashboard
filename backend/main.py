@@ -100,7 +100,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Portfolio Dashboard", version="0.6.2", lifespan=lifespan)
+app = FastAPI(title="Portfolio Dashboard", version="0.6.3", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -424,6 +424,25 @@ def create_manual_transaction(body: ManualTransactionRequest):
         if "exceeds held position" in msg:
             raise HTTPException(status_code=400, detail=msg)
         raise HTTPException(status_code=400, detail=msg)
+
+    # Seed price data for the manually-entered ticker so the dashboard has a
+    # quote + history ready on the next render instead of showing "—" until the
+    # next live yfinance round-trip succeeds. Best-effort: any failure here
+    # must not unwind the successful insert.
+    if action in ("BUY", "SELL", "DIVIDEND") and ticker:
+        try:
+            resolution = market_data.resolve_ticker(ticker, description=body.description)
+            resolved = resolution.resolved_ticker or ticker
+            try:
+                market_data.ensure_history(resolved)
+            except Exception as e:
+                logger.warning("ensure_history failed for manual ticker %s: %s", resolved, e)
+            try:
+                market_data.get_quote(resolved, max_age_minutes=0)
+            except Exception as e:
+                logger.warning("get_quote failed for manual ticker %s: %s", resolved, e)
+        except Exception as e:
+            logger.warning("ticker resolution failed for manual entry %s: %s", ticker, e)
 
     return result
 

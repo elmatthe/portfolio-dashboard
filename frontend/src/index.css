@@ -90,4 +90,25 @@
     background: rgb(var(--surface-rgb));
     color: rgb(var(--text-primary-rgb));
   }
+  /* Canonical form input — same design tokens as .filter-input, sized for
+     full-width form fields. Used by AddTransactionForm and any other modal
+     form that needs visible, readable inputs in both themes. */
+  .input {
+    background: rgb(var(--border-rgb) / 0.06);
+    color: rgb(var(--text-primary-rgb));
+    border: 1px solid rgb(var(--border-rgb) / var(--border-alpha));
+    @apply rounded-md px-3 py-2 text-sm;
+  }
+  .input::placeholder {
+    color: rgb(var(--text-muted-rgb));
+  }
+  .input option {
+    background: rgb(var(--surface-rgb));
+    color: rgb(var(--text-primary-rgb));
+  }
+  .input:focus {
+    outline: none;
+    border-color: rgb(var(--accent-rgb));
+    box-shadow: 0 0 0 2px rgb(var(--accent-rgb) / 0.2);
+  }
 }

@@ -167,7 +167,7 @@ function Slideover({
             <select
               value={ticker}
               onChange={(e) => setTicker(e.target.value)}
-              className="bg-white/5 border border-border rounded-md px-2 py-1.5 text-sm col-span-2"
+              className="input col-span-2"
             >
               {tickerOptions.map((t) => (
                 <option key={t} value={t}>{t}</option>
@@ -176,12 +176,12 @@ function Slideover({
             <select
               value={type}
               onChange={(e) => setType(e.target.value as "above" | "below")}
-              className="bg-white/5 border border-border rounded-md px-2 py-1.5 text-sm"
+              className="input"
             >
               <option value="above">Sell above</option>
               <option value="below">Buy below</option>
             </select>
-            <div className="inline-flex items-center bg-white/5 border border-border rounded-md px-2">
+            <div className="inline-flex items-center input px-2">
               <span className="text-text-muted text-xs">$</span>
               <input
                 type="number"

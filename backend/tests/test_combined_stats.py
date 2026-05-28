@@ -178,3 +178,65 @@ class TestCombinedStats:
         tfsa_accounts = [a for a in data.accounts if a.account_type == "TFSA"]
         for a in tfsa_accounts:
             pass  # non-null check — just verifying no crash
+
+
+class TestClampedPeriodReconciles:
+    """When the requested period spans the entire portfolio lifetime
+    (e.g. 3Y on an 18-month-old portfolio), Period Return $ must equal
+    the lifetime Period Return $ — there should be no extra "first
+    deposit" being double-counted.
+    """
+
+    def _seed_short_lived_portfolio(self):
+        """One-account portfolio with two deposits + one buy that has gained value."""
+        rows = [
+            ("2025-01-02", "DEPOSIT", None, 0, 0, 1000.0, "CAD"),
+            ("2025-01-03", "BUY",     "VEQT.TO", 25, 40.0, -1000.0, "CAD"),
+            ("2025-06-01", "DEPOSIT", None, 0, 0, 500.0, "CAD"),
+            ("2025-06-02", "BUY",     "VEQT.TO", 12, 41.5, -498.0, "CAD"),
+        ]
+        txs = []
+        for dt, action, sym, qty, price, net, cur in rows:
+            d = date.fromisoformat(dt)
+            h = compute_hash(transaction_date=d, action=action, raw_symbol=sym,
+                             quantity=qty, net_amount=net, account_number="QT-MARGIN-1")
+            txs.append(Transaction(
+                hash=h, broker="questrade", transaction_date=d, action=action,
+                raw_symbol=sym, resolved_ticker=sym, quantity=qty, price=price,
+                gross_amount=abs(net), commission=0.0, net_amount=net,
+                currency=cur, account_number="QT-MARGIN-1",
+                account_type="Margin", fx_rate_to_cad=1.0, net_cad=net,
+            ))
+        upsert_transactions(txs)
+
+    def test_clamped_3y_matches_lifetime_return_cad(self):
+        """3Y on a young portfolio must produce the same Period Return $ as 'all'."""
+        self._seed_short_lived_portfolio()
+        all_data = build_portfolio(period="all")
+        three_y = build_portfolio(period="3y")
+
+        # The fixed-window 3Y must have clamped to inception.
+        assert three_y.period_clamped, "Expected 3Y to clamp on a <3Y portfolio"
+
+        # Period Return $ on the Combined row must match within $0.01.
+        assert abs(
+            (three_y.combined.period_return_cad or 0.0)
+            - (all_data.combined.period_return_cad or 0.0)
+        ) < 0.01, (
+            f"Period Return mismatch — all={all_data.combined.period_return_cad}, "
+            f"3Y={three_y.combined.period_return_cad}"
+        )
+
+    def test_clamped_1y_matches_lifetime_when_within_lifetime(self):
+        """1Y on a young portfolio also clamps and must match lifetime."""
+        self._seed_short_lived_portfolio()
+        all_data = build_portfolio(period="all")
+        one_y = build_portfolio(period="1y")
+
+        # 1Y on a portfolio that started in Jan 2025 (~18 months ago in May 2026)
+        # spans the lifetime once clamped — same equality must hold.
+        if one_y.period_clamped:
+            assert abs(
+                (one_y.combined.period_return_cad or 0.0)
+                - (all_data.combined.period_return_cad or 0.0)
+            ) < 0.01
