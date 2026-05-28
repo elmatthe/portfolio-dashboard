@@ -180,6 +180,121 @@ class TestCombinedStats:
             pass  # non-null check — just verifying no crash
 
 
+class TestPerViewPeriodReturnAPI:
+    """Hit the real /api/portfolio endpoint with mixed CAD+USD data and verify
+    that Period Return $ for every currency view matches Total P&L $ for the
+    same view (within $0.01) whenever the period covers lifetime.
+
+    These tests reproduce the 0.6.3 user-reported bug where the Period Return
+    was identical across all four views (because the backend produced only
+    one CAD value) AND was off from Total P&L (because the ending value came
+    from the weekly portfolio_value_history instead of live total_equity).
+    """
+
+    def _seed_mixed_currency_portfolio(self) -> None:
+        """Two accounts, two currencies. CAD-leg holding has gained, USD-leg too.
+        Mix of CAD and USD deposits so per-view totals differ meaningfully."""
+        from backend.store import upsert_transactions
+
+        rows = [
+            # TFSA — CAD leg
+            ("2025-01-02", "DEPOSIT", None, 0, 0, 5000.0, "CAD", "TFSA", "TFSA-1", 1.0),
+            ("2025-01-03", "BUY",     "VEQT.TO", 100, 40.00, -4000.0, "CAD", "TFSA", "TFSA-1", 1.0),
+            ("2025-03-15", "DIVIDEND","VEQT.TO", 0, 0, 45.0,   "CAD", "TFSA", "TFSA-1", 1.0),
+            # Margin — USD leg
+            ("2025-02-01", "DEPOSIT", None, 0, 0, 2000.0, "USD", "Margin", "MARGIN-1", 1.36),
+            ("2025-02-02", "BUY",     "AAPL", 10, 180.00, -1800.0, "USD", "Margin", "MARGIN-1", 1.36),
+        ]
+        txs: list[Transaction] = []
+        for dt, action, sym, qty, price, net, cur, atype, anum, fx in rows:
+            d = date.fromisoformat(dt)
+            h = compute_hash(transaction_date=d, action=action, raw_symbol=sym,
+                             quantity=qty, net_amount=net, account_number=anum)
+            txs.append(Transaction(
+                hash=h, broker="questrade", transaction_date=d, action=action,
+                raw_symbol=sym, resolved_ticker=sym, quantity=qty, price=price,
+                gross_amount=abs(net), commission=0.0, net_amount=net,
+                currency=cur, account_number=anum, account_type=atype,
+                fx_rate_to_cad=fx, net_cad=round(net * fx, 2),
+            ))
+        upsert_transactions(txs)
+
+    def _call_api(self, period: str) -> dict:
+        from fastapi.testclient import TestClient
+        from backend.main import app
+        client = TestClient(app)
+        r = client.get(f"/api/portfolio?period={period}")
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def _pnl_per_view(self, combined: dict, fx: dict) -> dict:
+        """Mirror the frontend's computeGlanceMetrics so the test asserts
+        against the same Total P&L number the user actually sees."""
+        usd_to_cad = fx["usd_cad"] or 1.0
+        cad_to_usd = fx["cad_usd"] or (1.0 / usd_to_cad)
+        return {
+            "combined_cad":
+                (combined["total_equity_cad"] + combined["total_equity_usd"] * usd_to_cad)
+                - (combined["cash_deposited_cad"] + combined["cash_deposited_usd"] * usd_to_cad),
+            "combined_usd":
+                (combined["total_equity_usd"] + combined["total_equity_cad"] * cad_to_usd)
+                - (combined["cash_deposited_usd"] + combined["cash_deposited_cad"] * cad_to_usd),
+            "cad_only":
+                combined["total_equity_cad"] - combined["cash_deposited_cad"],
+            "usd_only":
+                combined["total_equity_usd"] - combined["cash_deposited_usd"],
+        }
+
+    def test_all_period_per_view_matches_total_pnl(self):
+        """period=all: Period Return per view == Total P&L per view, $0.01."""
+        self._seed_mixed_currency_portfolio()
+        data = self._call_api("all")
+        combined = data["combined"]
+        fx = data["exchange_rate"]
+        expected = self._pnl_per_view(combined, fx)
+
+        for view in ("combined_cad", "combined_usd", "cad_only", "usd_only"):
+            actual = combined[f"period_return_{view}"]
+            assert abs(actual - expected[view]) < 0.01, (
+                f"view={view}: backend period_return={actual}, "
+                f"expected (Total P&L)={expected[view]}"
+            )
+
+    def test_clamped_3y_per_view_matches_total_pnl(self):
+        """period=3y on a <3y portfolio clamps to inception, so per-view
+        Period Return must equal per-view Total P&L (within $0.01)."""
+        self._seed_mixed_currency_portfolio()
+        data = self._call_api("3y")
+        assert data["period_clamped"], "Expected 3y to clamp on a <3Y portfolio"
+        combined = data["combined"]
+        fx = data["exchange_rate"]
+        expected = self._pnl_per_view(combined, fx)
+
+        for view in ("combined_cad", "combined_usd", "cad_only", "usd_only"):
+            actual = combined[f"period_return_{view}"]
+            assert abs(actual - expected[view]) < 0.01, (
+                f"view={view}: backend period_return={actual}, "
+                f"expected (Total P&L)={expected[view]}"
+            )
+
+    def test_views_differ_when_data_is_mixed(self):
+        """Sanity: with mixed CAD+USD data, the four views must produce DIFFERENT
+        numbers. The 0.6.3 bug was that all four were identical."""
+        self._seed_mixed_currency_portfolio()
+        data = self._call_api("3y")
+        c = data["combined"]
+        values = {
+            v: c[f"period_return_{v}"]
+            for v in ("combined_cad", "combined_usd", "cad_only", "usd_only")
+        }
+        # combined_cad and cad_only differ (combined adds the USD leg)
+        assert abs(values["combined_cad"] - values["cad_only"]) > 0.01, values
+        # combined_usd and usd_only differ similarly
+        assert abs(values["combined_usd"] - values["usd_only"]) > 0.01, values
+        # cad_only and usd_only are denominated in different currencies
+        assert abs(values["cad_only"] - values["usd_only"]) > 0.01, values
+
+
 class TestClampedPeriodReconciles:
     """When the requested period spans the entire portfolio lifetime
     (e.g. 3Y on an 18-month-old portfolio), Period Return $ must equal

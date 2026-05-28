@@ -304,80 +304,97 @@ def build_portfolio(
             h.investment_weight_pct = h.market_value_cad / total_equity_cad * 100
 
     # Period-scoped metrics on the account/combined rows.
-    # We reuse the value-history reconstruction (which is correctly per-
-    # account_number) to figure out both the period-start AND period-end portfolio
-    # value. This avoids the bug where `_aggregate_accounts` mis-attributes equity
-    # when two accounts share an account_type (multiple Margin accounts at the same
-    # broker, etc.) — there, `bal.total_equity_cad` is overwritten by whichever
-    # account_type bucket the dict iteration lands on last. The value-history walk
-    # filters txs by account_number per row, so it stays accurate per account.
-    # When the requested period is clamped to the first transaction date (i.e.
-    # the user picked 3Y on an 18-month-old portfolio), there were no holdings
-    # before period_start by definition. Treat it the same as "all" — start
-    # value = 0, every deposit since inception counts as a cash flow — so the
-    # Modified-Dietz numerator equals lifetime P&L. Without this, the first
-    # deposit gets counted twice (once inside period_start_value_cad because
-    # the first weekly snapshot already includes it, and again in
-    # net_dep_in_period), making the clamped period understate gain by roughly
-    # the first deposit's value.
+    #
+    # Goal (0.6.4): Period Return must respect the same per-currency-view rules
+    # the frontend uses for Total P&L. The four views are:
+    #   - combined_cad: everything converted to CAD using live FX
+    #   - combined_usd: everything converted to USD using live FX
+    #   - cad_only:     only the CAD-denominated leg (cash + holdings)
+    #   - usd_only:     only the USD-denominated leg
+    # When the period spans the entire portfolio lifetime (period="all" or a
+    # fixed window that clamped to inception), Period Return $ MUST equal Total
+    # P&L $ for that same view by definition (no holdings existed before any
+    # cash flow, so end - cash_flows == lifetime P&L).
     treat_as_lifetime = period_key == "all" or period_clamped
 
     if period_active:
-        all_history = portfolio_value_history(account=active.account_number or "all")
-        period_start_total = 0.0 if treat_as_lifetime else _value_history_at(all_history, period_start)
-        period_end_total = all_history[-1].total_cad if all_history else 0.0
-        for bal in [*accounts, combined]:
-            bal.period_label = period_key
-            # Per-account period start AND end value from the same per-account
-            # value-history series — keeps both endpoints consistent and per-
-            # account-number-accurate. For the combined row, reuse all_history.
-            # For a lifetime-equivalent window (period="all" or a clamped fixed
-            # window) start value is forced to 0 so the denominator falls
-            # through to total net deposits — the only meaningful base for
-            # lifetime ROI.
-            if bal is combined:
-                bal.period_start_value_cad = period_start_total
-                bal_cur = period_end_total
-            else:
-                slim = portfolio_value_history(account=bal.account_number)
-                bal.period_start_value_cad = 0.0 if treat_as_lifetime else _value_history_at(slim, period_start)
-                bal_cur = slim[-1].total_cad if slim else 0.0
-            # Modified Dietz: return = (end - start - ΣCF) / (start + Σ(CF × w))
-            # where w_i = (days_remaining_after_CF) / total_days_in_period.
-            # This correctly handles the case where most deposits land near the
-            # start of the period (e.g. 1Y/3Y views including the initial
-            # account funding) — a simple `gain / start_value` formula would
-            # divide a multi-year gain by the tiny start value and overstate
-            # the return.
-            #
-            # TRANSFER actions are internal cash flows and must be excluded
-            # from both numerator and denominator.
+        fx_rate = usd_cad if usd_cad else 1.0
+
+        def _per_view_end(bal: AccountBalances) -> dict[str, float]:
+            """Ending value per view — uses LIVE total_equity, the same source
+            the frontend uses for Total P&L. Previously this came from
+            portfolio_value_history's last weekly close, which diverged from
+            live quotes by the intra-week price drift (Bug 1 Defect B)."""
+            return {
+                "combined_cad": bal.total_equity_cad + bal.total_equity_usd * fx_rate,
+                "combined_usd": bal.total_equity_usd + (bal.total_equity_cad / fx_rate if fx_rate else 0.0),
+                "cad_only": bal.total_equity_cad,
+                "usd_only": bal.total_equity_usd,
+            }
+
+        def _per_view_cash_flows(account_filter: str | None) -> tuple[dict[str, float], dict[str, float]]:
+            """Sum + Modified-Dietz weighted sum of cash flows in the period,
+            split per view. WITHDRAWAL net_amount is negative; deposit positive.
+            TRANSFER is intentionally excluded (internal movement, not external
+            funding)."""
+            cf = {"combined_cad": 0.0, "combined_usd": 0.0, "cad_only": 0.0, "usd_only": 0.0}
+            wcf = {"combined_cad": 0.0, "combined_usd": 0.0, "cad_only": 0.0, "usd_only": 0.0}
             period_end_date = date.today()
             total_days = max((period_end_date - period_start).days, 1)
-            net_dep_in_period = 0.0
-            weighted_dep_in_period = 0.0
             for t in txs:
                 if t.action not in ("DEPOSIT", "CONTRIBUTION", "WITHDRAWAL"):
                     continue
                 if t.transaction_date < period_start:
                     continue
-                if bal is not combined and t.account_number != bal.account_number:
+                if account_filter and t.account_number != account_filter:
                     continue
-                amt = t.net_amount * usd_cad if t.currency == "USD" else t.net_amount
-                net_dep_in_period += amt
-                # Weight = fraction of the period still remaining AFTER this cash flow.
-                # A CF on day 0 carries full weight; one on the last day carries ~0.
                 days_in = max((t.transaction_date - period_start).days, 0)
                 weight = max(0.0, (total_days - days_in) / total_days)
-                weighted_dep_in_period += amt * weight
+                amt = t.net_amount
+                if t.currency == "USD":
+                    cf["combined_cad"] += amt * fx_rate
+                    cf["combined_usd"] += amt
+                    cf["usd_only"] += amt
+                    wcf["combined_cad"] += amt * fx_rate * weight
+                    wcf["combined_usd"] += amt * weight
+                    wcf["usd_only"] += amt * weight
+                else:  # CAD (and any other native: treat as cad-leg below)
+                    amt_in_usd = amt / fx_rate if fx_rate else amt
+                    cf["combined_cad"] += amt
+                    cf["combined_usd"] += amt_in_usd
+                    cf["cad_only"] += amt
+                    wcf["combined_cad"] += amt * weight
+                    wcf["combined_usd"] += amt_in_usd * weight
+                    wcf["cad_only"] += amt * weight
+            return cf, wcf
 
-            bal.period_return_cad = round(
-                bal_cur - bal.period_start_value_cad - net_dep_in_period, 2
-            )
-            denom = bal.period_start_value_cad + weighted_dep_in_period
-            bal.period_return_pct = (
-                round(bal.period_return_cad / denom * 100, 2) if denom > 0 else 0.0
-            )
+        def _per_view_start(account_filter: str | None) -> dict[str, float]:
+            """Portfolio value at period_start per view. Zero when the period
+            covers lifetime (no holdings existed before the first cash flow)."""
+            if treat_as_lifetime:
+                return {"combined_cad": 0.0, "combined_usd": 0.0, "cad_only": 0.0, "usd_only": 0.0}
+            return _portfolio_legs_at(txs, period_start, fx_rate, account_filter)
+
+        for bal in [*accounts, combined]:
+            bal.period_label = period_key
+            account_filter = bal.account_number if bal is not combined else None
+
+            end = _per_view_end(bal)
+            cf, wcf = _per_view_cash_flows(account_filter)
+            start = _per_view_start(account_filter)
+
+            for view in ("combined_cad", "combined_usd", "cad_only", "usd_only"):
+                pr = end[view] - start[view] - cf[view]
+                denom = start[view] + wcf[view]
+                pr_pct = (pr / denom * 100) if denom > 0 else 0.0
+                setattr(bal, f"period_return_{view}", round(pr, 2))
+                setattr(bal, f"period_return_{view}_pct", round(pr_pct, 2))
+
+            # Legacy aliases for older clients that still read these fields
+            bal.period_return_cad = bal.period_return_combined_cad
+            bal.period_return_pct = bal.period_return_combined_cad_pct
+            bal.period_start_value_cad = round(start["combined_cad"], 2)
+
             # Period dividends (sum from the filtered transaction set)
             for t in txs:
                 if t.action != "DIVIDEND" or t.transaction_date < period_start:
@@ -498,6 +515,77 @@ def _price_at_or_before(df: pd.DataFrame, d: date) -> float | None:
         return float(val)
     except Exception:
         return None
+
+
+def _portfolio_legs_at(
+    txs: list[Transaction],
+    target_date: date,
+    usd_cad: float,
+    account_filter: str | None = None,
+) -> dict[str, float]:
+    """Reconstruct the portfolio's CAD-leg and USD-leg value at `target_date`.
+
+    Walks transactions chronologically up to target_date, sums per-ticker
+    holdings and per-currency cash, then values each holding at the historical
+    close on/just-before target_date. Used to compute per-view Period Return
+    start values when the requested period genuinely starts within the
+    portfolio's lifetime (not clamped).
+    """
+    shares: dict[str, float] = defaultdict(float)
+    ticker_currency: dict[str, str] = {}
+    cad_cash = 0.0
+    usd_cash = 0.0
+    for t in sorted(txs, key=lambda x: x.transaction_date):
+        if t.transaction_date > target_date:
+            break
+        if account_filter and t.account_number != account_filter:
+            continue
+        if t.action == "BUY" and t.resolved_ticker:
+            shares[t.resolved_ticker] += t.quantity
+            ticker_currency.setdefault(t.resolved_ticker, t.currency)
+            if t.currency == "USD":
+                usd_cash += t.net_amount  # negative for buys
+            else:
+                cad_cash += t.net_amount
+        elif t.action == "SELL" and t.resolved_ticker:
+            shares[t.resolved_ticker] -= abs(t.quantity)
+            if t.currency == "USD":
+                usd_cash += t.net_amount
+            else:
+                cad_cash += t.net_amount
+        elif t.action in ("DEPOSIT", "CONTRIBUTION", "WITHDRAWAL", "DIVIDEND"):
+            if t.currency == "USD":
+                usd_cash += t.net_amount
+            else:
+                cad_cash += t.net_amount
+        elif t.action == "FEE":
+            if t.currency == "USD":
+                usd_cash -= abs(t.net_amount)
+            else:
+                cad_cash -= abs(t.net_amount)
+
+    cad_leg_value = 0.0
+    usd_leg_value = 0.0
+    for ticker, qty in shares.items():
+        if qty <= 0:
+            continue
+        price = _price_at_or_before(store.get_price_history(ticker), target_date)
+        if price is None:
+            continue
+        if ticker_currency.get(ticker) == "USD":
+            usd_leg_value += price * qty
+        else:
+            cad_leg_value += price * qty
+
+    cad_total = cad_leg_value + cad_cash
+    usd_total = usd_leg_value + usd_cash
+    fx = usd_cad if usd_cad else 1.0
+    return {
+        "combined_cad": cad_total + usd_total * fx,
+        "combined_usd": usd_total + (cad_total / fx if fx else 0.0),
+        "cad_only": cad_total,
+        "usd_only": usd_total,
+    }
 
 
 def _value_history_at(points: list, d: date) -> float:

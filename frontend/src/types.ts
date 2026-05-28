@@ -203,6 +203,16 @@ export interface AccountBalances {
   period_start_value_cad: number;
   period_return_cad: number;
   period_return_pct: number;
+  // Per-currency-view period returns (0.6.4) — frontend picks the one
+  // matching the active CurrencyView toggle.
+  period_return_combined_cad: number;
+  period_return_combined_cad_pct: number;
+  period_return_combined_usd: number;
+  period_return_combined_usd_pct: number;
+  period_return_cad_only: number;
+  period_return_cad_only_pct: number;
+  period_return_usd_only: number;
+  period_return_usd_only_pct: number;
   period_dividends_cad: number;
   period_dividends_usd: number;
   cash_deposited_cad: number;

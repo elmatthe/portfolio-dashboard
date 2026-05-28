@@ -13,8 +13,12 @@ extraResources:
     to: backend/
     filter: ["**/*"]
   # The Vite-built frontend goes to resources/dist/. main.js loads index.html
-  # from there in production (via process.resourcesPath).
-  - from: ../dist/
+  # from there in production (via process.resourcesPath). Point directly at
+  # frontend/dist/ (Vite's output) instead of a copied repo-root dist/ — the
+  # extra copy step in 0.6.x silently shipped a stale bundle whenever the
+  # build script was bypassed (which is how 0.6.2/0.6.3 went out with my
+  # frontend fixes missing). One source of truth, no intermediate copy.
+  - from: ../frontend/dist/
     to: dist/
     filter: ["**/*"]
 mac:

@@ -451,10 +451,23 @@ class AccountBalances(BaseModel):
     # ---- period-aware fields (set when ?period= filter is active) ----
     period_label: str = "all"
     period_start_value_cad: float = 0.0  # portfolio value at the start of the period
-    period_return_cad: float = 0.0       # gain in CAD over the period
-    period_return_pct: float = 0.0       # gain % over the period
+    period_return_cad: float = 0.0       # legacy alias: same as period_return_combined_cad
+    period_return_pct: float = 0.0       # legacy alias: same as period_return_combined_cad_pct
     period_dividends_cad: float = 0.0    # dividends received within the period
     period_dividends_usd: float = 0.0
+    # ---- Per-currency-view period returns (added 0.6.4) ----
+    # Each Period Return reflects the same scope/conversion rule the frontend
+    # uses for Total P&L in that view. When the period spans the entire
+    # portfolio lifetime (period="all" or a fixed window that clamped to
+    # inception), Period Return $ == Total P&L $ for that view by definition.
+    period_return_combined_cad: float = 0.0
+    period_return_combined_cad_pct: float = 0.0
+    period_return_combined_usd: float = 0.0
+    period_return_combined_usd_pct: float = 0.0
+    period_return_cad_only: float = 0.0
+    period_return_cad_only_pct: float = 0.0
+    period_return_usd_only: float = 0.0
+    period_return_usd_only_pct: float = 0.0
     cash_deposited_cad: float = 0.0
     cash_deposited_usd: float = 0.0
     cash_invested_cad: float = 0.0

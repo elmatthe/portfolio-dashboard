@@ -133,29 +133,44 @@ function CombinedGlance({ combined, fx, view, onChangeView, periodClamped, perio
         />
       </div>
 
-      {periodActive && (
-        <div className="mt-5 pt-4 border-t border-border grid grid-cols-2 md:grid-cols-3 gap-y-5 gap-x-8">
-          <GlanceField
-            label={`Period Start Value (${periodChip})`}
-            value={combined.period_start_value_cad}
-            ccy="CAD"
-            sublabel={periodStartDate ? `as of ${periodStartDate}` : periodStartDateHint(combined.period_label)}
-          />
-          <GlanceField
-            label="Period Return"
-            value={combined.period_return_cad}
-            ccy="CAD"
-            tone={combined.period_return_cad >= 0 ? "gain" : "loss"}
-          />
-          <GlanceField
-            label="Period Return %"
-            value={combined.period_return_pct}
-            ccy={null}
-            asPct
-            tone={combined.period_return_pct >= 0 ? "gain" : "loss"}
-          />
-        </div>
-      )}
+      {periodActive && (() => {
+        // Period Return must respect the same currency-view rule as Total P&L.
+        // Backend exposes 4 explicit fields (added 0.6.4) — pick the one
+        // matching the active view rather than always showing the CAD value.
+        const prValue =
+          view === "combined_cad" ? combined.period_return_combined_cad :
+          view === "combined_usd" ? combined.period_return_combined_usd :
+          view === "cad_only"     ? combined.period_return_cad_only :
+                                    combined.period_return_usd_only;
+        const prPct =
+          view === "combined_cad" ? combined.period_return_combined_cad_pct :
+          view === "combined_usd" ? combined.period_return_combined_usd_pct :
+          view === "cad_only"     ? combined.period_return_cad_only_pct :
+                                    combined.period_return_usd_only_pct;
+        return (
+          <div className="mt-5 pt-4 border-t border-border grid grid-cols-2 md:grid-cols-3 gap-y-5 gap-x-8">
+            <GlanceField
+              label={`Period Start Value (${periodChip})`}
+              value={combined.period_start_value_cad}
+              ccy="CAD"
+              sublabel={periodStartDate ? `as of ${periodStartDate}` : periodStartDateHint(combined.period_label)}
+            />
+            <GlanceField
+              label="Period Return"
+              value={prValue}
+              ccy={metrics.ccy}
+              tone={prValue >= 0 ? "gain" : "loss"}
+            />
+            <GlanceField
+              label="Period Return %"
+              value={prPct}
+              ccy={null}
+              asPct
+              tone={prPct >= 0 ? "gain" : "loss"}
+            />
+          </div>
+        );
+      })()}
     </div>
   );
 }

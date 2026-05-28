@@ -100,7 +100,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Portfolio Dashboard", version="0.6.3", lifespan=lifespan)
+app = FastAPI(title="Portfolio Dashboard", version="0.6.4", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -943,16 +943,25 @@ def get_tfsa_room(
 def factory_reset() -> dict:
     """Delete ALL profiles, databases, caches, and settings — back to fresh-install.
 
-    This is the nuclear option: every on-disk artifact the app creates is
-    removed and a single default profile is recreated. The frontend should
-    reload after this call completes.
+    This is the nuclear option. Every on-disk artifact the app creates is
+    removed and a single default profile is recreated. On Windows the engine
+    MUST be disposed (and WAL checkpointed) before the DB file is deleted —
+    otherwise the SQLite file handle keeps the file locked and shutil.rmtree
+    silently fails, leaving the user trapped on the same data (the original
+    Bug 4 symptom in 0.6.2).
     """
     try:
-        db.dispose_engine()
+        # Force WAL checkpoint + truncate so there are no -wal/-shm files
+        # still being written when we try to remove the directory.
+        try:
+            db.checkpoint_wal()
+        except Exception as e:
+            logger.warning("checkpoint_wal failed before factory_reset: %s", e)
+        db.dispose_engine(reset_path=True)
+        market_data.clear_memo()
         new_profile = profiles.factory_reset()
         db.set_db_path(profiles.profile_db_path(new_profile.id))
         db.get_engine()
-        market_data.clear_memo()
         logger.info("Factory reset complete. New default profile: %s", new_profile.id)
         return {"success": True, "detail": "App reset to factory state.", "new_profile_id": new_profile.id}
     except Exception as e:

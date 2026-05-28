@@ -204,33 +204,84 @@ def mark_profile_imported(profile_id: str) -> None:
     save_profiles(state)
 
 
+def _force_rmtree(path: Path, retries: int = 6) -> None:
+    """Remove a directory tree on Windows even when SQLite has briefly held a
+    handle. Disposing the SQLAlchemy engine releases the connection but on
+    Windows the kernel may still be retiring the file handle. A small retry
+    with gc.collect() between attempts is much more reliable than a single
+    shutil.rmtree call and an `ignore_errors=True` swallow.
+    """
+    import gc
+    import time
+
+    if not path.exists():
+        return
+    last_err: Exception | None = None
+    for attempt in range(retries):
+        try:
+            shutil.rmtree(path)
+            return
+        except (PermissionError, OSError) as e:
+            last_err = e
+            gc.collect()
+            time.sleep(0.2 * (attempt + 1))
+    # Fall back: try per-file unlink, leaving any still-locked files behind
+    # but raising so the caller knows the reset wasn't fully clean.
+    logger.warning("factory_reset: shutil.rmtree failed for %s after retries: %s", path, last_err)
+    failures: list[str] = []
+    for child in path.rglob("*"):
+        if child.is_file():
+            try:
+                child.unlink()
+            except Exception as ex:
+                failures.append(f"{child}: {ex}")
+    if failures:
+        raise OSError(
+            f"factory_reset could not delete {len(failures)} file(s); first: {failures[0]}"
+        )
+    try:
+        shutil.rmtree(path)
+    except Exception as ex:
+        raise OSError(f"factory_reset rmtree second pass failed: {ex}")
+
+
 def factory_reset() -> Profile:
     """Delete ALL profiles, databases, and caches — return to fresh-install state.
 
+    The caller (main.py) is responsible for disposing the SQLAlchemy engine
+    BEFORE calling this so SQLite has actually released its file handles.
+    Raises OSError if any per-profile DB file refused to delete after retries.
+
     Returns the newly-created default profile so the caller can rebind the engine.
     """
+    import gc
+
+    # Force a gc cycle so any dangling SQLAlchemy connection objects release
+    # the underlying sqlite3 handles before we try to delete the file.
+    gc.collect()
+
     base = profiles_dir()
 
-    # 1. Remove every per-profile DB directory
+    # 1. Remove every per-profile DB directory (with Windows-aware retry)
     profiles_subdir = base / "profiles"
     if profiles_subdir.exists():
-        shutil.rmtree(profiles_subdir, ignore_errors=True)
+        _force_rmtree(profiles_subdir)
 
     # 2. Remove the manifest
     pj = profiles_json_path()
     if pj.exists():
-        pj.unlink(missing_ok=True)
+        try:
+            pj.unlink(missing_ok=True)
+        except Exception as e:
+            logger.warning("factory_reset: could not delete profiles.json: %s", e)
 
     # 3. Remove any legacy DB files at the top level
-    for f in base.glob("*.db"):
-        try:
-            f.unlink(missing_ok=True)
-        except Exception as e:
-            logger.warning("factory_reset: could not delete %s: %s", f, e)
-    for f in base.glob("*.db-wal"):
-        f.unlink(missing_ok=True)
-    for f in base.glob("*.db-shm"):
-        f.unlink(missing_ok=True)
+    for pattern in ("*.db", "*.db-wal", "*.db-shm"):
+        for f in base.glob(pattern):
+            try:
+                f.unlink(missing_ok=True)
+            except Exception as e:
+                logger.warning("factory_reset: could not delete %s: %s", f, e)
 
     # 4. Recreate a fresh default profile
     fresh = _create_default_profile_file()

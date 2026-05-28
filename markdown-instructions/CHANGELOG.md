@@ -6,6 +6,60 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.6.4] — 2026-05-28
+
+Real bug fixes for the four 0.6.2 defects. The 0.6.3 build claimed these
+were fixed but a packaging defect meant my frontend changes never reached
+the installer — see Build below.
+
+### Fixed
+
+- **Per-currency-view Period Return** — the backend used to produce a single
+  CAD-denominated Period Return and the frontend showed it in all four
+  currency views, so the value never changed when the user switched view.
+  Worse, the ending value was sourced from the last weekly close in
+  `portfolio_value_history` while Total P&L used live `total_equity`, so
+  even within `Combined CAD` the two figures disagreed by the intra-week
+  price drift. Backend now exposes four explicit per-view fields
+  (`period_return_combined_cad`, `_combined_usd`, `_cad_only`, `_usd_only`,
+  plus `_pct` counterparts) computed against live ending values. When the
+  period covers lifetime (`all`, or any fixed window that clamps to
+  inception), each per-view Period Return $ equals that view's Total P&L $
+  within $0.01. API-level regression tests in
+  `TestPerViewPeriodReturnAPI` hit `/api/portfolio` directly with mixed
+  CAD+USD data and assert per-view equality.
+
+- **Add Transaction form contrast (for real this time)** — the `.input`
+  CSS class was added in 0.6.3 but the packaged build kept shipping a
+  stale `dist/` so the renderer never saw it. With the build fix below
+  the class now actually applies; verified by a Playwright probe that
+  dumps `document.styleSheets` and confirms `.input` is present in the
+  loaded CSS, plus a full screenshot of the modal showing readable fields.
+
+- **Factory reset on Windows** — even after replacing `window.prompt`
+  with a proper modal dialog (which also didn't ship in 0.6.3 due to the
+  packaging defect), `profiles.factory_reset()` called
+  `shutil.rmtree(..., ignore_errors=True)`, silently swallowing the
+  `PermissionError` Windows raises when SQLite still holds a file handle
+  on the profile DB. Now: the `/api/app/reset` endpoint checkpoints WAL
+  → disposes the engine → `gc.collect()` → calls a new `_force_rmtree`
+  helper that retries with backoff and raises a clear error if any file
+  ultimately refuses to delete. End-to-end probe imports 5 transactions,
+  runs the reset flow, and confirms `/api/transactions` returns `[]`.
+
+### Build
+
+- **Stale frontend bundle root cause** —
+  `electron-builder.yml` packed `../dist/` (a repo-root copy created by
+  `scripts/build-frontend.ps1`) instead of Vite's actual output at
+  `../frontend/dist/`. Any path that bypassed the script — including
+  running `npm run build` directly — left the repo-root copy stale, and
+  the next `electron-builder` run shipped an installer with old assets.
+  Now points directly at `frontend/dist/` so there is one source of
+  truth and the intermediate copy can never go stale.
+
+---
+
 ## [0.6.3] — 2026-05-27
 
 Bug-fix release addressing four regressions found while testing 0.6.2.
