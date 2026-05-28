@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { ChevronDown, ChevronRight, Columns3, Search, X, Plus, Pencil, Trash2 } from "lucide-react";
 import clsx from "clsx";
 import { api, fmt } from "../api";
@@ -137,23 +137,42 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
   const [colMenuOpen, setColMenuOpen] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
-  const currentYear = new Date().getFullYear();
+  const allTxs = txQuery.data ?? [];
+
+  const dateSpan = useMemo(() => {
+    if (allTxs.length === 0) return { min: "", max: "" };
+    let min = allTxs[0].transaction_date;
+    let max = allTxs[0].transaction_date;
+    for (const t of allTxs) {
+      if (t.transaction_date < min) min = t.transaction_date;
+      if (t.transaction_date > max) max = t.transaction_date;
+    }
+    return { min, max };
+  }, [allTxs]);
+
   const [filterBroker, setFilterBroker] = useState("");
   const [filterAccountType, setFilterAccountType] = useState("");
   const [filterCurrency, setFilterCurrency] = useState("");
   const [filterAction, setFilterAction] = useState("");
-  const [filterDateFrom, setFilterDateFrom] = useState(`${currentYear}-01-01`);
+  const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
+  const [dateRangeInitialized, setDateRangeInitialized] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
+
+  useEffect(() => {
+    if (dateSpan.min && !dateRangeInitialized) {
+      setFilterDateFrom(dateSpan.min);
+      setFilterDateTo(dateSpan.max);
+      setDateRangeInitialized(true);
+    }
+  }, [dateSpan, dateRangeInitialized]);
 
   const handleSearchChange = useCallback((val: string) => {
     setSearchText(val);
     const timeout = setTimeout(() => setSearchDebounced(val), 300);
     return () => clearTimeout(timeout);
   }, []);
-
-  const allTxs = txQuery.data ?? [];
 
   const filteredTxs = useMemo(() => {
     let txs = allTxs;
@@ -199,15 +218,17 @@ export default function TransactionsPage({ onNavigate, onImportNew }: Props) {
 
   const hasActiveFilters =
     !!filterBroker || !!filterAccountType || !!filterCurrency || !!filterAction ||
-    filterDateFrom !== `${currentYear}-01-01` || !!filterDateTo || !!searchDebounced;
+    (filterDateFrom !== "" && filterDateFrom !== dateSpan.min) ||
+    (filterDateTo !== "" && filterDateTo !== dateSpan.max) ||
+    !!searchDebounced;
 
   function clearAllFilters() {
     setFilterBroker("");
     setFilterAccountType("");
     setFilterCurrency("");
     setFilterAction("");
-    setFilterDateFrom(`${currentYear}-01-01`);
-    setFilterDateTo("");
+    setFilterDateFrom(dateSpan.min);
+    setFilterDateTo(dateSpan.max);
     setSearchText("");
     setSearchDebounced("");
   }
