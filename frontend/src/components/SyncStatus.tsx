@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Download, FileUp, RefreshCw, FileSpreadsheet, AlertTriangle, Settings, FileText, List } from "lucide-react";
+import { Check, Download, FileUp, RefreshCw, FileSpreadsheet, AlertTriangle, Settings, FileText, List, LayoutDashboard } from "lucide-react";
 import clsx from "clsx";
 import { api, fmt } from "../api";
 import type { ImportInfo, PriceRefreshResult } from "../types";
@@ -115,12 +115,30 @@ export default function SyncStatus({ lastImport, lastRefreshAt, onImportNew, hol
             onClick={() => refresh.mutate()}
           />
           {onNavigate && (
-            <button
-              className={clsx("btn-ghost", activeView === "transactions" && "bg-accent/20 text-accent")}
-              onClick={() => onNavigate("transactions")}
-            >
-              <List size={14} /> Transactions
-            </button>
+            <div className="flex items-center rounded-lg border border-border overflow-hidden">
+              <button
+                className={clsx(
+                  "inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors",
+                  activeView === "dashboard"
+                    ? "bg-accent text-white"
+                    : "text-text-muted hover:text-text-primary hover:bg-border/20",
+                )}
+                onClick={() => onNavigate("dashboard")}
+              >
+                <LayoutDashboard size={14} /> Dashboard
+              </button>
+              <button
+                className={clsx(
+                  "inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors",
+                  activeView === "transactions"
+                    ? "bg-accent text-white"
+                    : "text-text-muted hover:text-text-primary hover:bg-border/20",
+                )}
+                onClick={() => onNavigate("transactions")}
+              >
+                <List size={14} /> Transactions
+              </button>
+            </div>
           )}
           <button className="btn-ghost" onClick={onImportNew}>
             <FileUp size={14} /> Import new export
