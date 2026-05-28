@@ -262,8 +262,8 @@ function createSplash() {
     movable: true,
     transparent: false,
     backgroundColor: "#0A0F1E",
-    alwaysOnTop: true,
-    skipTaskbar: true,
+    alwaysOnTop: false,
+    skipTaskbar: false,
     show: true,
     webPreferences: { contextIsolation: true, sandbox: true },
   });
@@ -305,7 +305,7 @@ function createSplash() {
 
 function closeSplash() {
   if (splashWindow && !splashWindow.isDestroyed()) {
-    splashWindow.close();
+    splashWindow.destroy();
   }
   splashWindow = null;
 }
@@ -336,15 +336,30 @@ async function createWindow() {
     await mainWindow.loadURL("http://localhost:5173");
     mainWindow.webContents.openDevTools({ mode: "detach" });
   } else {
-    // In production, electron-builder copies the Vite dist/ into
-    // resources/dist/ via extraResources. process.resourcesPath points there.
-    await mainWindow.loadFile(path.join(process.resourcesPath, "dist", "index.html"));
+    const indexPath = path.join(process.resourcesPath, "dist", "index.html");
+    console.log(`[electron] Loading frontend from ${indexPath}`);
+    await mainWindow.loadFile(indexPath);
   }
 
+  let shown = false;
   mainWindow.once("ready-to-show", () => {
+    if (shown) return;
+    shown = true;
+    console.log("[electron] ready-to-show fired");
     closeSplash();
     mainWindow.show();
   });
+
+  // Failsafe: if ready-to-show never fires (renderer JS crash, slow font
+  // load, etc.) force-show the window after 8 seconds so the user isn't
+  // stuck on the splash forever.
+  setTimeout(() => {
+    if (shown) return;
+    shown = true;
+    console.warn("[electron] ready-to-show did not fire within 8s — force-showing window");
+    closeSplash();
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
+  }, 8_000);
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     // Only forward http(s) URLs to the user's default browser. Refuse anything
     // else (file://, custom schemes, javascript:, data:) so a malicious / typo
@@ -365,26 +380,34 @@ async function createWindow() {
 
 app.whenReady().then(async () => {
   try {
+    console.log("[electron] Step 1/5: creating splash");
     createSplash();
 
-    // Check if a stale backend is already running on the preferred port.
-    // This happens when the previous Electron process was force-killed
-    // (Task Manager, crash) and didn't get a chance to shut down its backend.
+    console.log("[electron] Step 2/5: checking for stale backend on port", PREFERRED_BACKEND_PORT);
     const staleAlive = await isPortHealthy(PREFERRED_BACKEND_PORT);
     if (staleAlive) {
       console.log(`[electron] Stale backend detected on port ${PREFERRED_BACKEND_PORT} — killing it`);
       await killStaleBackend(PREFERRED_BACKEND_PORT);
-      // Brief pause for the port to be released by the OS.
       await new Promise((r) => setTimeout(r, 500));
+    } else {
+      console.log("[electron] No stale backend found");
     }
 
+    console.log("[electron] Step 3/5: finding free port");
     BACKEND_PORT = await findFreePort(PREFERRED_BACKEND_PORT);
     console.log(`[electron] Backend port resolved to ${BACKEND_PORT}`);
+
+    console.log("[electron] Step 4/5: starting backend");
     startBackend();
     await waitForBackend();
+    console.log("[electron] Backend is healthy");
+
+    console.log("[electron] Step 5/5: creating main window");
     await createWindow();
+    console.log("[electron] Startup complete");
   } catch (err) {
-    console.error("[electron] Failed to start:", err);
+    console.error("[electron] Startup failed at:", err);
+    appendBackendLog(`startup-error: ${err.stack || err.message}\n`);
     closeSplash();
     const tail = stderrTail.slice(-8).join("\n") || "(no backend output captured)";
     const result = dialog.showMessageBoxSync({
