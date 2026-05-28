@@ -6,6 +6,39 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.6.2] — 2026-05-27
+
+UI polish, navigation, and FX verification.
+
+### Fixed
+
+- **Filter bar contrast** — Transactions page filter inputs (dropdowns,
+  date pickers, search) now use design-token backgrounds and borders,
+  readable in both dark and light mode. New `.filter-input` CSS class.
+
+- **Date range defaults** — Transactions date range initializes to
+  [earliest, latest] transaction date instead of Jan 1 of current year.
+  "Clear" resets to the full span. Empty DB produces empty inputs.
+
+### Added
+
+- **Dashboard/Transactions nav toggle** — segmented button in the top
+  bar with active-view highlighting (accent background). Replaces the
+  one-way Transactions button. Visible from both views; keyboard
+  accessible.
+
+- **23 multi-currency FX tests** — verifies FXService static fallback
+  rates (10 currencies), FX conversion on parsed HSBC rows (7 currencies),
+  JPY large-nominal edge cases, foreign sell → CAD gain, and dashboard
+  stability with mixed-currency holdings. No FX bugs found.
+
+- **Master Debug Section 11b** — Multi-Currency FX verification block
+  added to `MASTER_DEBUG_AND_TEST_RUN.md`.
+
+- **118 total backend tests**, 0 failures.
+
+---
+
 ## [0.6.1] — 2026-05-26
 
 Critical fix: app can no longer be bricked by a bad import.
