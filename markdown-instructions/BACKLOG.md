@@ -6,6 +6,22 @@ permanent (unlike the temporary instruction drops in this folder).
 
 ---
 
+## Pending External Testing
+
+### A2 root cause + public release re-cut — BLOCKED on tester availability
+- A2 root cause and the public release re-cut are blocked on the tester's
+  clean-machine artifact (**error-dialog text + `backend.log`**). The tester is
+  **unavailable until further notice.**
+- **When they return:** send them the **0.6.4 installer**
+  (`release\Portfolio Dashboard Setup 0.6.4.exe`) with the **three instructions
+  already written in the Item A plan**
+  (`markdown-instructions/ITEM_A_STARTUP_AND_ITEM_4_UNIVERSAL_IMPORT.md`).
+- **Do NOT** re-cut the public release or merge
+  `fix/item-a-clean-machine-hardening` to `main` until A2 is confirmed on a
+  clean machine.
+
+---
+
 ## Open
 
 ### BUG — Some stocks calculate dividends incorrectly
