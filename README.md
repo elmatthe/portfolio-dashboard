@@ -215,9 +215,18 @@ wipe transactions for the active profile while keeping your settings.
 
 To uninstall:
 - Settings → Apps → Installed apps → **Portfolio Dashboard** → **Uninstall**,
-  or re-run the installer and use its uninstall flow. The uninstaller leaves
-  `%APPDATA%\Portfolio Dashboard\` untouched so you can reinstall without
-  losing data.
+  or re-run the installer and use its uninstall flow. The uninstaller asks
+  whether to **also remove all your saved data** (`%APPDATA%\Portfolio
+  Dashboard\` — profiles, transactions, settings, cached prices):
+  - Choose **No** (the default) to keep your data so a future reinstall picks
+    up right where you left off.
+  - Choose **Yes** for a clean uninstall that returns the app to a true
+    first-run state on the next install.
+  - In-place version upgrades never prompt and never touch your data.
+
+  If you ever need to wipe everything manually, delete the
+  `%APPDATA%\Portfolio Dashboard\` folder (paste `%APPDATA%\Portfolio Dashboard`
+  into the File Explorer address bar).
 
 ---
 

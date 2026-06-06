@@ -283,6 +283,24 @@ def factory_reset() -> Profile:
             except Exception as e:
                 logger.warning("factory_reset: could not delete %s: %s", f, e)
 
+    # 3b. Remove every other top-level app-generated artifact so the reset truly
+    # returns to a fresh-install state. This covers the Electron-written files
+    # that live alongside the profiles dir but aren't part of any profile DB:
+    #   - backend.log     (Electron tees backend stdout/stderr here)
+    #   - window-state.json (electron-window-state remembers window geometry)
+    # NOTE: the app creates NO OS-permission or region/geolocation cache of its
+    # own — a git-grep of the codebase finds zero geolocation/region/locale
+    # calls, and the backend binds only to 127.0.0.1. There is therefore no
+    # such file to clear here; any Windows location permission the user granted
+    # is OS-level state outside this app's data directory.
+    for name in ("backend.log", "window-state.json"):
+        f = base / name
+        if f.exists():
+            try:
+                f.unlink(missing_ok=True)
+            except Exception as e:
+                logger.warning("factory_reset: could not delete %s: %s", f, e)
+
     # 4. Recreate a fresh default profile
     fresh = _create_default_profile_file()
     save_profiles(fresh)

@@ -115,6 +115,26 @@ async function main() {
   }
   log("  PASS — taskkill killed backend");
 
+  // ---------- Test 5: readiness poll is bounded (never hangs) ----------
+  // Item A: the tester's v0.5.3 hang was an unbounded-looking splash. main.js'
+  // waitForBackend() polls /health against a finite deadline and REJECTS when
+  // it lapses, so a backend that never starts surfaces an error dialog instead
+  // of an infinite splash. With no backend running, the bounded poll must
+  // resolve "unhealthy" well within its window — proving it terminates.
+  log("Test 5: readiness poll terminates when backend never starts (no infinite hang)");
+  killAll();
+  await sleep(500);
+  const t0 = Date.now();
+  const stillHealthy = await waitHealthy(PORT, 4000);
+  const elapsed = Date.now() - t0;
+  if (stillHealthy) {
+    fail("health poll reported healthy with no backend running");
+  }
+  if (elapsed > 6000) {
+    fail(`readiness poll did not terminate within its deadline (took ${elapsed}ms)`);
+  }
+  log(`  PASS — poll returned unhealthy in ${elapsed}ms (bounded, no hang)`);
+
   log("\nAll smoke tests passed.");
   process.exit(0);
 }

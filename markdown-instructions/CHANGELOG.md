@@ -6,6 +6,62 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased] — Item A: clean-machine startup hardening
+
+Defensive hardening for the external tester's clean-machine launch failure.
+The infinite "Starting local data service…" hang was already fixed in 0.6.4
+(commit `3db14a5`: the v0.5.3 always-on-top splash masked the 30s timeout
+dialog). This session adds clean-uninstall / full-reset guarantees and
+regression coverage. The real backend-start root cause (A2) and a re-cut public
+release remain pending the tester's clean-machine artifact — see
+`markdown-instructions/BACKLOG.md`.
+
+### Added
+
+- **Clean-uninstall hook** — new `assets/installer.nsh` defines an NSIS
+  `customUnInstall` macro (auto-included by electron-builder from the
+  buildResources dir) that offers to remove `%APPDATA%\Portfolio Dashboard`
+  on a genuine uninstall. Guarded by `${isUpdated}` so in-place version
+  upgrades never touch user data; defaults to **keep** (silent uninstalls keep
+  data too). Directly addresses the tester's "uninstall + reinstall didn't
+  re-prompt / still hung" = stale `%APPDATA%` surviving uninstall.
+
+- **`backend/tests/test_clean_start.py`** — clean first-run regression: a
+  pristine empty profile dir yields `/health` 200 with `db_corrupt=false`, a
+  materialised profile DB, and all 12 parsers registered (the `KeyError:
+  'generic'` packaging guard). Plus a factory-reset test asserting top-level
+  artifacts are wiped.
+
+- **Smoke-test Test 5** — `electron/smoke-test.js` now asserts the readiness
+  poll is bounded (returns unhealthy within its deadline when no backend
+  starts), pinning the "splash never hangs infinitely" invariant.
+
+- **`markdown-instructions/BACKLOG.md`** — durable backlog; captures the
+  tester's "some stocks calculate dividends incorrectly" report (logged, not
+  fixed) plus the open A1/A2/location follow-ups.
+
+### Changed
+
+- **`profiles.factory_reset()`** now also removes top-level app-generated
+  artifacts (`backend.log`, `window-state.json`), not just profile databases,
+  so a reset returns to a true fresh-install state. Documented in code that the
+  app creates no OS-permission/region/geolocation cache of its own (git-grep
+  confirmed zero geolocation calls; backend binds only to `127.0.0.1`).
+
+- **README** — uninstall section updated to describe the new "also remove your
+  data?" prompt and the manual `%APPDATA%` wipe path.
+
+### Notes
+
+- **A3 (location dependency) — not a code issue.** No geolocation/region/locale
+  code exists anywhere in source or dependencies; nothing to remove.
+- **A1 (no shortcuts) — not a config bug.** v0.5.3 already had
+  `createDesktopShortcut`/`createStartMenuShortcut` true; real cause pending
+  clean-machine repro.
+- Backend suite: **126 passed**, `tsc` 0 errors, smoke 5/5.
+
+---
+
 ## [0.6.4] — 2026-05-28
 
 Real bug fixes for the four 0.6.2 defects. The 0.6.3 build claimed these
