@@ -1,0 +1,11 @@
+My Brokerage Account — Transaction Export
+Account: 00112233   Generated: 2024-12-31
+
+Date,Type,Symbol,Quantity,Price,Amount,Currency
+2024-01-05,Buy,AAPL,10,180.00,-1800.00,USD
+2024-02-10,Sell,AAPL,5,200.00,1000.00,USD
+2024-03-15,Dividend,AAPL,,,12.50,USD
+Date,Type,Symbol,Quantity,Price,Amount,Currency
+2024-04-01,Buy,VEQT.TO,20,40.00,-800.00,CAD
+Subtotal,,,,,,
+Total,,,,,-1587.50,

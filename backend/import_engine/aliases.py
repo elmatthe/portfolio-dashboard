@@ -41,6 +41,11 @@ def normalize_label(label: str | None) -> str:
         return ""
     s = unicodedata.normalize("NFKD", str(label))
     s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    # Split camelCase boundaries so broker headers like "TradeDate" / "SettleDate"
+    # become "trade date" / "settle date" and hit the spaced aliases. Done before
+    # lowercasing (needs the case signal); a lowercase/digit immediately followed
+    # by an uppercase letter gets a space inserted.
+    s = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", s)
     s = s.lower()
     s = re.sub(r"[^a-z0-9]+", " ", s)
     return s.strip()
