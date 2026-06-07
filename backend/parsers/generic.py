@@ -51,7 +51,7 @@ from backend.parsers.registry import _register
 
 logger = logging.getLogger(__name__)
 
-_TABULAR_EXT = (".csv", ".tsv", ".xls", ".xlsx", ".xlsm")
+_TABULAR_EXT = (".csv", ".tsv", ".xls", ".xlsx", ".xlsm", ".pdf")
 
 # Institutions worth naming if they appear anywhere in the file preamble/header.
 _INSTITUTION_KEYWORDS = (
@@ -68,16 +68,18 @@ _GENERIC_LABEL = "Imported (Generic)"
 class GenericParser(BaseParser):
     BROKER_NAME: ClassVar[str] = "Generic / Unknown Broker"
     BROKER_KEY: ClassVar[str] = "generic"
-    SUPPORTED_FORMATS: ClassVar[list[str]] = ["csv", "tsv", "xls", "xlsx"]
+    SUPPORTED_FORMATS: ClassVar[list[str]] = ["csv", "tsv", "xls", "xlsx", "pdf"]
 
     @classmethod
     def detect(cls, file_path: str | Path, content_sample: str) -> float:
         """Low, never-winning score reflecting how table-like the file looks.
 
-        Capped at 0.45 so a named parser (≥0.50) always wins. A spreadsheet's
-        binary content isn't in `content_sample`, so it gets a flat low base.
+        Capped at 0.45 so a named parser (≥0.50) always wins. A spreadsheet's or
+        PDF's content isn't in `content_sample`, so those get a flat low base.
         """
         ext = Path(file_path).suffix.lower()
+        if ext == ".pdf":
+            return 0.12  # last-resort lane for any PDF a named parser didn't claim
         if ext not in _TABULAR_EXT:
             return 0.0
         if ext in (".xls", ".xlsx", ".xlsm"):

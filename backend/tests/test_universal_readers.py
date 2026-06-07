@@ -58,9 +58,13 @@ def test_read_tabular_xlsx_returns_sheets():
     assert all(t.fmt == "xlsx" for t in tables)
 
 
-def test_read_tabular_rejects_pdf():
-    with pytest.raises(ValueError):
-        read_tabular(TEST_DATA / "pdf" / "RBC_DirectInvesting_2024.pdf")
+def test_read_tabular_reads_pdf():
+    # PDF was a placeholder rejection through Step 5; Step 6 wired pdfplumber in,
+    # so read_tabular now returns a single concatenated RawTable for a PDF.
+    tables = read_tabular(TEST_DATA / "pdf" / "RBC_DirectInvesting_2024.pdf")
+    assert len(tables) == 1
+    assert tables[0].fmt == "pdf"
+    assert tables[0].n_rows > 1
 
 
 # --------------------------------------------------------------------------- #

@@ -1,0 +1,9 @@
+# Binary fixtures must never be line-ending normalized. These small reportlab
+# PDFs contain no NUL bytes, so git's autocrlf would misdetect them as text and
+# rewrite LF→CRLF on checkout — corrupting the xref byte offsets so pdfplumber
+# can no longer open them on a fresh clone. Mark them binary (no eol conversion,
+# no text diff). Excel fixtures are zip archives but are marked for the same
+# guarantee of byte-exact checkout.
+*.pdf  binary
+*.xlsx binary
+*.xls  binary
