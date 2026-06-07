@@ -30,6 +30,8 @@ py -m PyInstaller backend/main.py `
   --collect-all openpyxl `
   --collect-all pdfplumber `
   --collect-all rapidfuzz `
+  --collect-submodules backend.parsers `
+  --collect-submodules backend.import_engine `
   --distpath backend-dist/ `
   --workpath build/
 

@@ -102,7 +102,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Portfolio Dashboard", version="0.6.4", lifespan=lifespan)
+app = FastAPI(title="Portfolio Dashboard", version="0.7.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

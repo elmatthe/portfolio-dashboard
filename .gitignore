@@ -65,6 +65,8 @@ test-transaction-reports/
 # Test artefacts
 .pytest_cache/
 tests/__pycache__/
+frontend/test-results/
+frontend/playwright-report/
 
 # Master Debug test run logs (build artifacts, not source)
 markdown-instructions/build_version_test_logs/*.txt

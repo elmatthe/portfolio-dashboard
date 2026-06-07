@@ -467,6 +467,93 @@ Test each supported broker format. For each, verify: correct detection, confiden
 
 ---
 
+## SECTION 6b — Universal / Generic Import
+
+The universal-import lane (Item 4) lets the app ingest a transaction export from
+**any** broker or bank — even one with no named parser — plus hand-built CSV/XLSX
+and table-based PDFs. A scored detector routes named brokers to their dedicated
+parser unchanged; anything that doesn't clear the named threshold falls to the
+generic pipeline, which infers column meaning, scores each mapping, and — when
+confidence is low — opens an editable mapping editor so the user confirms or
+corrects the column map before anything is written. This section guards two
+things: **named parsers must never regress into the generic lane**, and **a
+generic import must feed every downstream system without ever bricking the app**.
+
+### Automated checks
+
+```bash
+# Backend — the whole universal suite (parsers, readers, classification,
+# preview/confirm endpoints, and the cross-system integration tests):
+cd backend/
+pytest tests/test_universal_classify.py tests/test_universal_readers.py \
+       tests/test_universal_pdf.py tests/test_universal_preview.py \
+       tests/test_universal_integration.py -v --tb=short 2>&1
+
+# Or just run the full suite (universal tests are part of the 303 total):
+pytest tests/ -q 2>&1
+```
+
+```
+[  ] pytest universal suite — 0 failures (test_universal_*.py + test_universal_integration.py)
+[  ] All 11 named fixtures detect ≥ 0.70 and route to their OWN parser, never "generic"
+[  ] All 11 named fixtures preview as mode="named" (short-circuit, no editor token)
+[  ] Messy generic CSV → preview mode="generic", needs_review=true, detected_broker="generic"
+[  ] Generic confirm (no overrides) inserts 4 rows with broker="generic"
+[  ] /api/portfolio returns 200 (real payload, not the error-recovery shape) after generic import
+[  ] /api/transactions?broker=generic returns the 4 generic rows
+[  ] Currency exposure (/api/portfolio holdings) includes both generic-row currencies (USD + CAD)
+[  ] /api/attribution returns 200 after a generic import
+[  ] Re-confirming the same generic file inserts 0 (dedup) and keeps /api/portfolio at 200
+[  ] Confirmed layout is remembered by header fingerprint (second preview: reused_saved_mapping=true, needs_review=false)
+[  ] TypeScript compilation — 0 errors (npx tsc --noEmit)
+```
+
+```bash
+# Frontend E2E — REQUIRES A LIVE APP (Vite dev server + backend) at localhost:5173.
+# Skipped automatically if the app isn't running. Use a fresh profile: a layout
+# confirmed once is remembered and will skip the editor by design.
+cd frontend/
+npx playwright test tests/e2e/import-mapping.spec.ts 2>&1
+```
+
+```
+[  ] import-mapping.spec — messy CSV opens the editor, an override is applied, confirm imports > 0 rows
+```
+
+### Manual verification
+
+```
+[  ] Drop a file from an institution NOT in the named list (or the messy generic fixture)
+     → the mapping editor modal opens (does NOT silently import)
+[  ] In the editor, correct one wrong column assignment via its dropdown
+[  ] Click Confirm Import → rows appear in the Transactions page under "Imported (Generic)"
+[  ] Re-import the same file → 0 new rows (dedup), no error toast
+[  ] /api/portfolio still returns 200 after the generic import (app cannot be bricked)
+[  ] Drop one of the 11 named-broker files → the editor does NOT open; it goes
+     straight to the named one-shot import toast
+```
+
+### Item 4 acceptance criteria (plan §10 — Item 4 Verification)
+
+```
+[  ] Any tabular export (CSV / TSV / XLSX / XLS) is accepted, regardless of broker
+[  ] Table-based PDF exports are accepted through the same pipeline (pdfplumber)
+[  ] Column meaning is inferred (header + value heuristics), not hard-coded per broker
+[  ] Each field mapping carries a confidence and a method; an overall mapping confidence is reported
+[  ] Rows are bucketed into four states: Confident / Assumptions / Partial / Unmapped
+[  ] Low detection-confidence files (< 0.70) open the editable mapping editor before any write
+[  ] Named-broker files (≥ 0.70) keep the existing one-shot flow and never open the editor
+[  ] Editor enforces a strict 1:1 field↔column map (re-mapping a field evicts the prior owner)
+[  ] Required-field gaps are surfaced; rows missing an anchor are held back, not silently dropped
+[  ] A confirmed mapping is remembered per header fingerprint and reused without re-prompting
+[  ] FX rate to CAD and net_cad are populated on every generic row that imports
+[  ] Generic rows dedup against re-imports (and against named imports) via SHA-256
+[  ] The 11 named parsers produce byte-identical output to before Item 4 (zero regression)
+[  ] A generic import can never leave the app in an unrecoverable state (/api/portfolio stays 200)
+```
+
+---
+
 ## SECTION 7 — Dashboard Views and Navigation
 
 ```

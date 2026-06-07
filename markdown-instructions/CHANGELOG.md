@@ -6,6 +6,103 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.7.0] — 2026-06-07
+
+Universal / intelligent import (Item 4). The generic fallback parser is now a
+full inference pipeline: the app can ingest a transaction export from **any**
+broker or bank — plus hand-built CSV/XLSX and table-based PDFs — not just the 11
+named brokers. Anything a named parser doesn't claim is routed to a scored
+column-mapping engine, and when confidence is low the user gets an editable
+mapping editor to confirm or correct the column map before a single row is
+written. The 11 named parsers are untouched and produce identical output.
+
+### Added
+
+- **Universal import pipeline** (`backend/import_engine/`) — built across eight
+  steps:
+  - **Readers** (`readers.py`) — one tabular entry point for `.csv`, `.tsv`,
+    `.xlsx`, `.xlsm`, `.xls`, and now `.pdf`. PDF tables are extracted with
+    pdfplumber (already bundled): `extract_tables()` per page first, a
+    text-layout whitespace split as fallback, and multi-page tables with a
+    repeated header are concatenated with header de-duplication.
+  - **Column classification** (`classify_columns.py`) — header- and
+    value-based heuristics infer each canonical field, every mapping carries a
+    confidence and a method, and an overall mapping confidence is reported.
+    Mapping is a strict 1:1 field↔column invariant (re-mapping a field evicts
+    the prior owner of that column).
+  - **Row classification & diagnostics** — rows bucket into four states
+    (Confident / Assumptions / Partial / Unmapped); a 16-label canonical-action
+    layer feeds diagnostics and down-maps to the 11 stored action values;
+    per-action minimum-schema rules surface required-field gaps so rows missing
+    an anchor are held back for review rather than silently dropped.
+  - **Preview / confirm** (`preview.py`) — the generic lane runs up to but not
+    including persistence, stashes the result in a short-lived server-side
+    session, and returns a token plus the full field map for review. Confirm
+    applies the user's overrides, runs the full back half (FX, validation,
+    dedup, store), and remembers the confirmed mapping per **header
+    fingerprint** so the same layout is reused next time without re-prompting.
+- **Two new endpoints** —
+  - `POST /api/import/preview` — inspects a file and returns either
+    `mode="named"` (high-confidence, short-circuits to the existing one-shot
+    flow) or `mode="generic"` with a token, detected institution, overall
+    mapping confidence, per-field map, sample rows, four-state row counts, and
+    suggested remappings. One-shot tokens expire after 30 minutes.
+  - `POST /api/import/confirm` — accepts the token plus optional column
+    overrides and returns a standard `ImportResult` with `import_diagnostics`.
+    Returns **404** for an unknown/expired token and **410** for a token that
+    was already used.
+- **Editable column-mapping editor** (`frontend/src/components/ImportMappingEditor.tsx`)
+  — a modal that opens **only** for generic / low-confidence files (detection
+  confidence below the 0.70 review threshold). Shows the detected institution
+  and confidence, the four-state row counts, the per-field mapping table with
+  override dropdowns, a live raw-sample preview, and missing-required warnings.
+  Named / high-confidence files keep the existing one-shot flow and never see
+  the modal. The 0.70 threshold is a named constant mirrored on both sides
+  (`REVIEW_CONFIDENCE_THRESHOLD`).
+- **Item A — clean-machine startup hardening** lives on branch
+  `fix/item-a-clean-machine-hardening` (NOT yet merged to main; tracked
+  separately). Listed here for provenance; its changes are not part of this
+  release.
+
+### Changed
+
+- **`_finalize_import` refactor** (`backend/main.py`, internal, non-breaking) —
+  the shared back half of an import (ticker resolution → upsert → metadata →
+  `ImportResult`) was extracted from `import_file` so both `/api/import` and
+  `/api/import/confirm` go through identical persistence logic. The behaviour
+  of `/api/import` is byte-for-byte unchanged.
+- The upload zone now advertises PDF support and routes every dropped file
+  through preview-first so generic files can open the editor.
+
+### Dependencies
+
+- **rapidfuzz** — added for fuzzy header matching in column classification
+  (fast, MIT-licensed, no native build step). Declared `rapidfuzz>=3.6.0` in
+  `backend/requirements.txt`, matching the file's existing lower-bound
+  convention.
+
+### Fixed
+
+- **Binary fixture corruption guard** — added `.gitattributes` marking `*.pdf`,
+  `*.xlsx`, and `*.xls` as binary. Reportlab-generated PDFs contain no NUL
+  bytes, so with `autocrlf=true` git mis-detected them as text and rewrote
+  LF→CRLF on checkout, corrupting xref offsets. This had been a latent bug for
+  the existing RBC/TD/CIBC PDF fixtures as well; round-trip verified
+  byte-identical after the fix.
+
+### Tests
+
+- Suite grew from **126** (shipped in 0.6.4) to **303** passing. New universal
+  coverage: `test_universal_classify.py`, `test_universal_readers.py`,
+  `test_universal_pdf.py`, `test_universal_preview.py`, and the cross-system
+  `test_universal_integration.py` (named-parser routing invariant for all 11
+  fixtures + generic rows feeding portfolio / transactions / currency exposure
+  / attribution / dedup). Plus a Playwright E2E
+  (`import-mapping.spec.ts`) covering the editor open → override → confirm flow.
+  TypeScript: 0 errors.
+
+---
+
 ## [0.6.4] — 2026-05-28
 
 Real bug fixes for the four 0.6.2 defects. The 0.6.3 build claimed these
