@@ -137,6 +137,11 @@ class ImportResult(BaseModel):
     detected_format: str | None = None  # "xlsx", "csv", "pdf"
     skipped_invalid: int = 0
     validation_warnings: list[str] = Field(default_factory=list)
+    # ---- v0.7.0 universal-import lane ----
+    # Present only for generic-lane imports (named parsers leave it None). Carries
+    # the ImportDiagnostics.to_dict() payload the Step 7 review UI consumes:
+    # field→column map, per-row assumptions/missing fields, and suggested remaps.
+    import_diagnostics: dict | None = None
 
 
 class ImportInfo(BaseModel):

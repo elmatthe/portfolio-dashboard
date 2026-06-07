@@ -49,6 +49,7 @@ from backend.models import (
     UnresolvedTicker,
 )
 from backend.parser import UnknownFormatError, parse_file
+from backend.import_engine.diagnostics import pop_last_diagnostics
 from backend.validation import validate_transactions
 
 
@@ -183,13 +184,46 @@ async def import_file(file: UploadFile = File(...)) -> ImportResult:
         try:
             txs, fmt = parse_file(tmp)
         except UnknownFormatError as e:
+            # The generic lane may have run and produced diagnostics even when it
+            # could confidently map zero rows. Surface those for review instead of
+            # a bare 400 — rows are kept, never silently dropped.
+            diag = pop_last_diagnostics()
+            if diag is not None:
+                return ImportResult(
+                    inserted=0,
+                    skipped_duplicates=0,
+                    total_in_db=store.upsert_transactions([]).total_in_db,
+                    detected_broker="generic",
+                    detected_format=Path(file.filename or "").suffix.lstrip(".") or None,
+                    validation_warnings=[
+                        "No rows could be confidently mapped — see diagnostics for what is missing.",
+                    ],
+                    import_diagnostics=diag.to_dict(),
+                )
             raise HTTPException(status_code=400, detail=str(e))
+
+        # Diagnostics are produced only by the generic lane; named parsers leave
+        # the stash empty. Pop unconditionally (clears stale state) but only use
+        # it when the generic parser actually handled this file.
+        _diag_obj = pop_last_diagnostics()
+        import_diagnostics = _diag_obj.to_dict() if (_diag_obj and fmt.broker == "generic") else None
 
         # Validate parsed rows — reject those with bad dates or non-numeric fields.
         vr = validate_transactions(txs)
         txs = vr.valid
 
         if not txs:
+            if import_diagnostics is not None:
+                return ImportResult(
+                    inserted=0,
+                    skipped_duplicates=0,
+                    total_in_db=store.upsert_transactions([]).total_in_db,
+                    detected_broker="generic",
+                    detected_format=fmt.fmt,
+                    skipped_invalid=vr.skipped,
+                    validation_warnings=vr.warnings[:10],
+                    import_diagnostics=import_diagnostics,
+                )
             raise HTTPException(
                 status_code=400,
                 detail=f"No valid rows found. {vr.skipped} rows skipped: "
@@ -270,6 +304,7 @@ async def import_file(file: UploadFile = File(...)) -> ImportResult:
             detected_format=fmt.fmt,
             skipped_invalid=vr.skipped,
             validation_warnings=vr.warnings[:10],
+            import_diagnostics=import_diagnostics,
         )
     finally:
         try:

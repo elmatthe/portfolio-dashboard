@@ -99,6 +99,10 @@ class NormalizedRow:
     derived: set[CanonicalField] = field(default_factory=set)
     derivations: list[str] = field(default_factory=list)
     assumptions: list[str] = field(default_factory=list)
+    # Metadata enrichments (e.g. exchange from a ticker suffix) — recorded for the
+    # diagnostics trail but NOT treated as economic assumptions, so they don't by
+    # themselves downgrade an otherwise-clean row out of the CONFIDENT state.
+    enrichments: list[str] = field(default_factory=list)
     quantity_sign: int = 0  # original sign of the source quantity (-1/0/+1)
 
     # -- convenience accessors ------------------------------------------------ #
@@ -257,6 +261,6 @@ def normalize_row(row: Sequence[str], mapping: MappingResult) -> NormalizedRow:
         if exch:
             out.values[_F.EXCHANGE] = exch
             out.derived.add(_F.EXCHANGE)
-            out.derivations.append(f"exchange '{exch}' derived from ticker suffix")
+            out.enrichments.append(f"exchange '{exch}' derived from ticker suffix")
 
     return out
