@@ -12,6 +12,7 @@ import pandas as pd
 from backend import market_data, store
 from backend._time import utcnow_naive as _now
 from backend.acb import compute as compute_acb
+from backend.fx import get_fx_service
 from backend.models import (
     AccountBalances,
     AccountTab,
@@ -325,9 +326,14 @@ def build_portfolio(
             the frontend uses for Total P&L. Previously this came from
             portfolio_value_history's last weekly close, which diverged from
             live quotes by the intra-week price drift (Bug 1 Defect B)."""
+            # Combined views fold the CAD-equivalent foreign leg in; CAD-only /
+            # USD-only stay native (BUG-001). Combined USD derives the foreign
+            # leg from its CAD-equivalent ÷ (USD→CAD), never a two-hop through
+            # the native currency.
+            cad_plus_other = bal.total_equity_cad + bal.total_equity_other_cad
             return {
-                "combined_cad": bal.total_equity_cad + bal.total_equity_usd * fx_rate,
-                "combined_usd": bal.total_equity_usd + (bal.total_equity_cad / fx_rate if fx_rate else 0.0),
+                "combined_cad": cad_plus_other + bal.total_equity_usd * fx_rate,
+                "combined_usd": bal.total_equity_usd + (cad_plus_other / fx_rate if fx_rate else 0.0),
                 "cad_only": bal.total_equity_cad,
                 "usd_only": bal.total_equity_usd,
             }
@@ -358,7 +364,7 @@ def build_portfolio(
                     wcf["combined_cad"] += amt * fx_rate * weight
                     wcf["combined_usd"] += amt * weight
                     wcf["usd_only"] += amt * weight
-                else:  # CAD (and any other native: treat as cad-leg below)
+                elif t.currency == "CAD":
                     amt_in_usd = amt / fx_rate if fx_rate else amt
                     cf["combined_cad"] += amt
                     cf["combined_usd"] += amt_in_usd
@@ -366,6 +372,15 @@ def build_portfolio(
                     wcf["combined_cad"] += amt * weight
                     wcf["combined_usd"] += amt_in_usd * weight
                     wcf["cad_only"] += amt * weight
+                else:
+                    # Non-CAD/non-USD: CAD-equivalent (transaction-date FX) for the
+                    # Combined views; excluded from CAD-only / USD-only (BUG-001).
+                    cad_eq = _tx_cad_equiv(t)
+                    cad_eq_in_usd = cad_eq / fx_rate if fx_rate else cad_eq
+                    cf["combined_cad"] += cad_eq
+                    cf["combined_usd"] += cad_eq_in_usd
+                    wcf["combined_cad"] += cad_eq * weight
+                    wcf["combined_usd"] += cad_eq_in_usd * weight
             return cf, wcf
 
         def _per_view_start(account_filter: str | None) -> dict[str, float]:
@@ -535,54 +550,62 @@ def _portfolio_legs_at(
     ticker_currency: dict[str, str] = {}
     cad_cash = 0.0
     usd_cash = 0.0
+    other_cash_cad = 0.0  # CAD-equivalent of non-CAD/non-USD cash (BUG-001)
+
+    def _route_cash(currency: str, native_amt: float, cad_eq: float) -> None:
+        nonlocal cad_cash, usd_cash, other_cash_cad
+        if currency == "USD":
+            usd_cash += native_amt
+        elif currency == "CAD":
+            cad_cash += native_amt
+        else:
+            other_cash_cad += cad_eq
+
     for t in sorted(txs, key=lambda x: x.transaction_date):
         if t.transaction_date > target_date:
             break
         if account_filter and t.account_number != account_filter:
             continue
+        cad_eq = _tx_cad_equiv(t)
         if t.action == "BUY" and t.resolved_ticker:
             shares[t.resolved_ticker] += t.quantity
             ticker_currency.setdefault(t.resolved_ticker, t.currency)
-            if t.currency == "USD":
-                usd_cash += t.net_amount  # negative for buys
-            else:
-                cad_cash += t.net_amount
+            _route_cash(t.currency, t.net_amount, cad_eq)  # negative for buys
         elif t.action == "SELL" and t.resolved_ticker:
             shares[t.resolved_ticker] -= abs(t.quantity)
-            if t.currency == "USD":
-                usd_cash += t.net_amount
-            else:
-                cad_cash += t.net_amount
+            _route_cash(t.currency, t.net_amount, cad_eq)
         elif t.action in ("DEPOSIT", "CONTRIBUTION", "WITHDRAWAL", "DIVIDEND"):
-            if t.currency == "USD":
-                usd_cash += t.net_amount
-            else:
-                cad_cash += t.net_amount
+            _route_cash(t.currency, t.net_amount, cad_eq)
         elif t.action == "FEE":
-            if t.currency == "USD":
-                usd_cash -= abs(t.net_amount)
-            else:
-                cad_cash -= abs(t.net_amount)
+            _route_cash(t.currency, -abs(t.net_amount), -abs(cad_eq))
 
     cad_leg_value = 0.0
     usd_leg_value = 0.0
+    other_leg_value_cad = 0.0
     for ticker, qty in shares.items():
         if qty <= 0:
             continue
         price = _price_at_or_before(store.get_price_history(ticker), target_date)
         if price is None:
             continue
-        if ticker_currency.get(ticker) == "USD":
+        cur = ticker_currency.get(ticker, "CAD")
+        if cur == "USD":
             usd_leg_value += price * qty
-        else:
+        elif cur == "CAD":
             cad_leg_value += price * qty
+        else:
+            # Foreign holding valued at the historical close, converted to CAD at
+            # that date's FX (transaction-date-style, not today's live rate).
+            other_leg_value_cad += price * qty * get_fx_service().rate_to_cad(cur, target_date)
 
     cad_total = cad_leg_value + cad_cash
     usd_total = usd_leg_value + usd_cash
+    other_total_cad = other_leg_value_cad + other_cash_cad
     fx = usd_cad if usd_cad else 1.0
+    cad_plus_other = cad_total + other_total_cad
     return {
-        "combined_cad": cad_total + usd_total * fx,
-        "combined_usd": usd_total + (cad_total / fx if fx else 0.0),
+        "combined_cad": cad_plus_other + usd_total * fx,
+        "combined_usd": usd_total + (cad_plus_other / fx if fx else 0.0),
         "cad_only": cad_total,
         "usd_only": usd_total,
     }
@@ -601,12 +624,54 @@ def _value_history_at(points: list, d: date) -> float:
 
 
 def _to_cad(amount: float | None, currency: str, usd_cad: float) -> float | None:
-    """Convert a native-currency amount to CAD using the live FX rate."""
+    """Convert a native-currency amount to its CAD-equivalent at the live rate.
+
+    This is for *current valuation* (e.g. holding market value), so it uses
+    today's rate, not a transaction-date rate. USD keeps using the live
+    `usd_cad` the caller already fetched from market_data so existing CAD/USD
+    figures stay byte-identical; every other non-CAD currency is converted via
+    FXService (BUG-001 — previously this returned the raw amount, so GBP/EUR/
+    JPY/AUD/CHF/HKD/SEK/NOK were silently treated as 1:1 CAD downstream)."""
     if amount is None:
         return None
-    if currency == "USD":
+    cur = (currency or "CAD").upper()
+    if cur == "CAD":
+        return amount
+    if cur == "USD":
         return amount * usd_cad
-    return amount
+    return amount * get_fx_service().rate_to_cad(cur, date.today())
+
+
+def _add_currency_bucket(
+    bal: AccountBalances, currency: str, base: str, native_val: float, cad_val: float
+) -> None:
+    """Accumulate a money amount into the right per-currency bucket on `bal`.
+
+    Native CAD → `{base}_cad`, native USD → `{base}_usd` (both byte-identical to
+    pre-BUG-001 behaviour), and every other currency → `{base}_other_cad` using
+    the CAD-equivalent value (from `net_cad`). This keeps CAD-only / USD-only
+    views native while letting the Combined views sum a correct CAD-equivalent
+    for all ten currencies."""
+    cur = (currency or "CAD").upper()
+    if cur == "USD":
+        setattr(bal, f"{base}_usd", getattr(bal, f"{base}_usd") + native_val)
+    elif cur == "CAD":
+        setattr(bal, f"{base}_cad", getattr(bal, f"{base}_cad") + native_val)
+    else:
+        setattr(bal, f"{base}_other_cad", getattr(bal, f"{base}_other_cad") + cad_val)
+
+
+def _tx_cad_equiv(t: Transaction) -> float:
+    """CAD-equivalent of a transaction's net_amount, preferring the stored
+    transaction-date `net_cad`. Falls back to net_amount * fx_rate_to_cad, then
+    to the raw amount, for older rows that predate net_cad population."""
+    if t.net_cad is not None:
+        return t.net_cad
+    if t.net_amount is None:
+        return 0.0
+    if t.fx_rate_to_cad is not None:
+        return round(t.net_amount * t.fx_rate_to_cad, 2)
+    return t.net_amount
 
 
 def _aggregate_accounts(
@@ -637,38 +702,23 @@ def _aggregate_accounts(
             ),
         )
         amt = t.net_amount
-        if t.action in ("DEPOSIT", "CONTRIBUTION"):
-            if t.currency == "USD":
-                bal.cash_deposited_usd += amt
-            else:
-                bal.cash_deposited_cad += amt
-        elif t.action == "WITHDRAWAL":
-            if t.currency == "USD":
-                bal.cash_deposited_usd += amt  # amt is negative
-            else:
-                bal.cash_deposited_cad += amt
+        # CAD-equivalent (transaction-date FX) used only for the non-CAD/non-USD
+        # `_other_cad` buckets; CAD/USD buckets keep using the native amount.
+        cad_eq = _tx_cad_equiv(t)
+        if t.action in ("DEPOSIT", "CONTRIBUTION", "WITHDRAWAL"):
+            # WITHDRAWAL net_amount / net_cad are already negative.
+            _add_currency_bucket(bal, t.currency, "cash_deposited", amt, cad_eq)
         elif t.action == "BUY":
-            if t.currency == "USD":
-                bal.cash_invested_usd += abs(amt)
-            else:
-                bal.cash_invested_cad += abs(amt)
+            _add_currency_bucket(bal, t.currency, "cash_invested", abs(amt), abs(cad_eq))
         elif t.action == "DIVIDEND":
-            if t.currency == "USD":
-                bal.total_dividends_usd += amt
-            else:
-                bal.total_dividends_cad += amt
+            _add_currency_bucket(bal, t.currency, "total_dividends", amt, cad_eq)
         elif t.action == "FEE":
-            if t.currency == "USD":
-                bal.total_fees_usd += abs(amt)
-            else:
-                bal.total_fees_cad += abs(amt)
+            _add_currency_bucket(bal, t.currency, "total_fees", abs(amt), abs(cad_eq))
 
-        # Commission is baked into BUY/SELL net_amount, but we still want to surface it
+        # Commission is baked into BUY/SELL net_amount, but we still want to surface it.
         if t.action in ("BUY", "SELL") and t.commission:
-            if t.currency == "USD":
-                bal.total_fees_usd += abs(t.commission)
-            else:
-                bal.total_fees_cad += abs(t.commission)
+            comm_cad = abs(t.commission) * (t.fx_rate_to_cad or 1.0)
+            _add_currency_bucket(bal, t.currency, "total_fees", abs(t.commission), comm_cad)
 
     # Equity from holdings — attribute each holding to the balance row whose
     # account_type matches. (Holdings carry account_type, not account_number;
@@ -681,15 +731,19 @@ def _aggregate_accounts(
             continue
         if h.market_value is None:
             continue
-        if h.currency == "USD":
-            bal.total_equity_usd += h.market_value
+        # Foreign holdings use their CAD-equivalent market value (live FX, via
+        # _to_cad) and convert native unrealized gain at the same effective rate.
+        if h.currency not in ("CAD", "USD") and h.market_value_cad is not None:
+            live_rate = (h.market_value_cad / h.market_value) if h.market_value else 0.0
+            unreal_cad = h.unrealized_gain * live_rate if h.unrealized_gain is not None else 0.0
         else:
-            bal.total_equity_cad += h.market_value
+            live_rate = 1.0
+            unreal_cad = 0.0
+        _add_currency_bucket(bal, h.currency, "total_equity", h.market_value, h.market_value_cad or 0.0)
         if h.unrealized_gain is not None:
-            if h.currency == "USD":
-                bal.unrealized_gain_usd += h.unrealized_gain
-            else:
-                bal.unrealized_gain_cad += h.unrealized_gain
+            _add_currency_bucket(
+                bal, h.currency, "unrealized_gain", h.unrealized_gain, unreal_cad
+            )
 
     for bal in by_acct.values():
         bal.cash_remaining_cad = round(
@@ -706,22 +760,37 @@ def _aggregate_accounts(
             - bal.total_fees_usd,
             2,
         )
+        bal.cash_remaining_other_cad = round(
+            bal.cash_deposited_other_cad
+            + bal.total_dividends_other_cad
+            - bal.cash_invested_other_cad
+            - bal.total_fees_other_cad,
+            2,
+        )
 
         # Bug 2 fix: Total Equity (as Questrade defines it) = Market Value + Cash balance.
         # Each currency's total equity now includes that currency's cash.
         bal.total_equity_cad = round(bal.total_equity_cad + bal.cash_remaining_cad, 2)
         bal.total_equity_usd = round(bal.total_equity_usd + bal.cash_remaining_usd, 2)
+        bal.total_equity_other_cad = round(bal.total_equity_other_cad + bal.cash_remaining_other_cad, 2)
 
         # ROI matches Questrade's "Simple Rate of Return" — uses NET DEPOSITS
         # (money the user actually put into the account) as the denominator,
-        # everything converted to CAD so USD/CAD mixing can't make positive and
-        # negative values cancel out (Bug 3).
-        total_equity_cad_eq = bal.total_equity_cad + bal.total_equity_usd * usd_cad
-        deposited_cad_eq = bal.cash_deposited_cad + bal.cash_deposited_usd * usd_cad
+        # everything converted to CAD so currency mixing can't make positive and
+        # negative values cancel out (Bug 3). The `_other_cad` legs are already
+        # CAD-equivalent, so they add directly (BUG-001).
+        total_equity_cad_eq = (
+            bal.total_equity_cad + bal.total_equity_usd * usd_cad + bal.total_equity_other_cad
+        )
+        deposited_cad_eq = (
+            bal.cash_deposited_cad + bal.cash_deposited_usd * usd_cad + bal.cash_deposited_other_cad
+        )
         if deposited_cad_eq > 0:
             bal.overall_roi_pct = (total_equity_cad_eq - deposited_cad_eq) / deposited_cad_eq * 100
 
-        invested_cad_eq = bal.cash_invested_cad + bal.cash_invested_usd * usd_cad
+        invested_cad_eq = (
+            bal.cash_invested_cad + bal.cash_invested_usd * usd_cad + bal.cash_invested_other_cad
+        )
         if deposited_cad_eq > 0:
             bal.investment_weight_pct = invested_cad_eq / deposited_cad_eq * 100
 
@@ -746,15 +815,23 @@ def _combine_accounts(accounts: list[AccountBalances], usd_cad: float) -> Accoun
         c.total_equity_usd += a.total_equity_usd
         c.unrealized_gain_cad += a.unrealized_gain_cad
         c.unrealized_gain_usd += a.unrealized_gain_usd
+        # CAD-equivalent of non-CAD/non-USD currencies (BUG-001).
+        c.cash_deposited_other_cad += a.cash_deposited_other_cad
+        c.cash_invested_other_cad += a.cash_invested_other_cad
+        c.total_fees_other_cad += a.total_fees_other_cad
+        c.total_dividends_other_cad += a.total_dividends_other_cad
+        c.cash_remaining_other_cad += a.cash_remaining_other_cad
+        c.total_equity_other_cad += a.total_equity_other_cad
+        c.unrealized_gain_other_cad += a.unrealized_gain_other_cad
 
     # Bug 3 fix: combined ROI must be computed AFTER summing all fields, and
     # must convert everything to a single currency so CAD/USD values don't cancel.
-    total_equity_cad_eq = c.total_equity_cad + c.total_equity_usd * usd_cad
-    deposited_cad_eq = c.cash_deposited_cad + c.cash_deposited_usd * usd_cad
+    total_equity_cad_eq = c.total_equity_cad + c.total_equity_usd * usd_cad + c.total_equity_other_cad
+    deposited_cad_eq = c.cash_deposited_cad + c.cash_deposited_usd * usd_cad + c.cash_deposited_other_cad
     if deposited_cad_eq > 0:
         c.overall_roi_pct = (total_equity_cad_eq - deposited_cad_eq) / deposited_cad_eq * 100
 
-    invested_cad_eq = c.cash_invested_cad + c.cash_invested_usd * usd_cad
+    invested_cad_eq = c.cash_invested_cad + c.cash_invested_usd * usd_cad + c.cash_invested_other_cad
     if deposited_cad_eq > 0:
         c.investment_weight_pct = invested_cad_eq / deposited_cad_eq * 100
 
@@ -1273,47 +1350,45 @@ def portfolio_value_history(account: str | None = None, period: str | None = Non
         shares: dict[str, float] = defaultdict(float)
         cash_cad = 0.0
         cash_usd = 0.0
+        cash_other_cad = 0.0          # CAD-equivalent of non-CAD/non-USD cash (BUG-001)
         net_deposits_cad = 0.0
         net_deposits_usd = 0.0
+        net_deposits_other_cad = 0.0
+
+        def _route(currency: str, native_amt: float, cad_eq: float, *, is_deposit: bool = False) -> None:
+            nonlocal cash_cad, cash_usd, cash_other_cad
+            nonlocal net_deposits_cad, net_deposits_usd, net_deposits_other_cad
+            if currency == "USD":
+                cash_usd += native_amt
+                if is_deposit:
+                    net_deposits_usd += native_amt
+            elif currency == "CAD":
+                cash_cad += native_amt
+                if is_deposit:
+                    net_deposits_cad += native_amt
+            else:
+                cash_other_cad += cad_eq
+                if is_deposit:
+                    net_deposits_other_cad += cad_eq
+
         for t in txs_sorted:
             if pd.Timestamp(t.transaction_date) > week_end:
                 break  # sorted, so no later txs match either
+            cad_eq = _tx_cad_equiv(t)
             if t.action == "BUY" and t.resolved_ticker:
                 shares[t.resolved_ticker] += t.quantity
-                if t.currency == "USD":
-                    cash_usd += t.net_amount  # negative for buys
-                else:
-                    cash_cad += t.net_amount
+                _route(t.currency, t.net_amount, cad_eq)  # negative for buys
             elif t.action == "SELL" and t.resolved_ticker:
                 shares[t.resolved_ticker] -= abs(t.quantity)
-                if t.currency == "USD":
-                    cash_usd += t.net_amount  # positive for sells
-                else:
-                    cash_cad += t.net_amount
+                _route(t.currency, t.net_amount, cad_eq)  # positive for sells
             elif t.action in ("DEPOSIT", "CONTRIBUTION"):
-                if t.currency == "USD":
-                    cash_usd += t.net_amount
-                    net_deposits_usd += t.net_amount
-                else:
-                    cash_cad += t.net_amount
-                    net_deposits_cad += t.net_amount
+                _route(t.currency, t.net_amount, cad_eq, is_deposit=True)
             elif t.action == "WITHDRAWAL":
-                if t.currency == "USD":
-                    cash_usd += t.net_amount  # already negative
-                    net_deposits_usd += t.net_amount
-                else:
-                    cash_cad += t.net_amount
-                    net_deposits_cad += t.net_amount
+                _route(t.currency, t.net_amount, cad_eq, is_deposit=True)  # already negative
             elif t.action == "DIVIDEND":
-                if t.currency == "USD":
-                    cash_usd += t.net_amount
-                else:
-                    cash_cad += t.net_amount
+                _route(t.currency, t.net_amount, cad_eq)
             elif t.action == "FEE":
-                if t.currency == "USD":
-                    cash_usd -= abs(t.net_amount)
-                else:
-                    cash_cad -= abs(t.net_amount)
+                _route(t.currency, -abs(t.net_amount), -abs(cad_eq))
 
         # Holdings value at this week
         market_value_cad = 0.0
@@ -1330,10 +1405,15 @@ def portfolio_value_history(account: str | None = None, period: str | None = Non
             close = float(applicable.iloc[-1])
             value_in_native = close * qty
             cur = ticker_currency.get(tk, "CAD")
-            market_value_cad += value_in_native * usd_cad if cur == "USD" else value_in_native
+            if cur == "USD":
+                market_value_cad += value_in_native * usd_cad
+            elif cur == "CAD":
+                market_value_cad += value_in_native
+            else:
+                market_value_cad += value_in_native * get_fx_service().rate_to_cad(cur, week_end.date())
 
-        cash_in_cad = cash_cad + cash_usd * usd_cad
-        net_deposits_in_cad = net_deposits_cad + net_deposits_usd * usd_cad
+        cash_in_cad = cash_cad + cash_usd * usd_cad + cash_other_cad
+        net_deposits_in_cad = net_deposits_cad + net_deposits_usd * usd_cad + net_deposits_other_cad
         total = market_value_cad + cash_in_cad
 
         # Skip the leading zeros before the user actually had any deposits

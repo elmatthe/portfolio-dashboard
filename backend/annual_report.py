@@ -163,8 +163,18 @@ def build_annual_report_pdf(year: int) -> bytes:
     elements.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", MUTED))
     elements.append(Spacer(1, 14))
 
-    total_equity_cad = data.combined.total_equity_cad + data.combined.total_equity_usd * usd_cad
-    net_deposits = data.combined.cash_deposited_cad + data.combined.cash_deposited_usd * usd_cad
+    # Include the CAD-equivalent of non-CAD/non-USD currencies (BUG-001); 0 for
+    # pure CAD/USD portfolios.
+    total_equity_cad = (
+        data.combined.total_equity_cad
+        + data.combined.total_equity_usd * usd_cad
+        + data.combined.total_equity_other_cad
+    )
+    net_deposits = (
+        data.combined.cash_deposited_cad
+        + data.combined.cash_deposited_usd * usd_cad
+        + data.combined.cash_deposited_other_cad
+    )
     total_gain = total_equity_cad - net_deposits
     simple_ror = (total_gain / net_deposits * 100) if net_deposits > 0 else 0.0
 

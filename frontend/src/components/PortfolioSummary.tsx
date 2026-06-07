@@ -194,24 +194,31 @@ function computeGlanceMetrics(
   // Market value (holdings-only) = total_equity − cash_remaining.
   const marketCad = c.total_equity_cad - c.cash_remaining_cad;
   const marketUsd = c.total_equity_usd - c.cash_remaining_usd;
+  // *_other_cad = CAD-equivalent of every non-CAD/non-USD currency (BUG-001).
+  // These are folded into the Combined views and ignored by the single-currency
+  // (native-filter) views. They are 0 for pure CAD/USD data, so CAD/USD numbers
+  // are byte-identical to before.
+  const marketOther = c.total_equity_other_cad - c.cash_remaining_other_cad;
   const usdToCad = fx.usd_cad || 1;
   const cadToUsd = fx.cad_usd || (usdToCad ? 1 / usdToCad : 1);
 
   switch (view) {
     case "combined_cad": {
-      const totalEquity = c.total_equity_cad + c.total_equity_usd * usdToCad;
-      const cash = c.cash_remaining_cad + c.cash_remaining_usd * usdToCad;
-      const marketValue = marketCad + marketUsd * usdToCad;
-      const netDeposits = c.cash_deposited_cad + c.cash_deposited_usd * usdToCad;
+      const totalEquity = c.total_equity_cad + c.total_equity_usd * usdToCad + c.total_equity_other_cad;
+      const cash = c.cash_remaining_cad + c.cash_remaining_usd * usdToCad + c.cash_remaining_other_cad;
+      const marketValue = marketCad + marketUsd * usdToCad + marketOther;
+      const netDeposits = c.cash_deposited_cad + c.cash_deposited_usd * usdToCad + c.cash_deposited_other_cad;
       const pnl = totalEquity - netDeposits;
       const simpleRor = netDeposits > 0 ? (pnl / netDeposits) * 100 : 0;
       return { ccy: "CAD", totalEquity, cash, marketValue, netDeposits, pnl, simpleRor };
     }
     case "combined_usd": {
-      const totalEquity = c.total_equity_usd + c.total_equity_cad * cadToUsd;
-      const cash = c.cash_remaining_usd + c.cash_remaining_cad * cadToUsd;
-      const marketValue = marketUsd + marketCad * cadToUsd;
-      const netDeposits = c.cash_deposited_usd + c.cash_deposited_cad * cadToUsd;
+      // Foreign legs convert via their CAD-equivalent ÷ (USD→CAD) — i.e.
+      // × cadToUsd — never a two-hop through the native currency.
+      const totalEquity = c.total_equity_usd + (c.total_equity_cad + c.total_equity_other_cad) * cadToUsd;
+      const cash = c.cash_remaining_usd + (c.cash_remaining_cad + c.cash_remaining_other_cad) * cadToUsd;
+      const marketValue = marketUsd + (marketCad + marketOther) * cadToUsd;
+      const netDeposits = c.cash_deposited_usd + (c.cash_deposited_cad + c.cash_deposited_other_cad) * cadToUsd;
       const pnl = totalEquity - netDeposits;
       const simpleRor = netDeposits > 0 ? (pnl / netDeposits) * 100 : 0;
       return { ccy: "USD", totalEquity, cash, marketValue, netDeposits, pnl, simpleRor };
@@ -351,14 +358,14 @@ function SummaryRow({ label, account }: { label: string; account: AccountBalance
   return (
     <tr className={clsx(isCombined && "font-semibold bg-white/[0.02]")}>
       <td className="py-3 pr-4">{label}</td>
-      <Money cad={account.cash_deposited_cad} usd={account.cash_deposited_usd} />
-      <Money cad={account.cash_invested_cad} usd={account.cash_invested_usd} />
-      <Money cad={account.total_fees_cad} usd={account.total_fees_usd} />
-      <Money cad={account.total_dividends_cad} usd={account.total_dividends_usd} />
-      <Money cad={account.cash_remaining_cad} usd={account.cash_remaining_usd} />
-      <Money cad={account.total_equity_cad} usd={account.total_equity_usd} />
+      <Money cad={account.cash_deposited_cad} usd={account.cash_deposited_usd} other={account.cash_deposited_other_cad} />
+      <Money cad={account.cash_invested_cad} usd={account.cash_invested_usd} other={account.cash_invested_other_cad} />
+      <Money cad={account.total_fees_cad} usd={account.total_fees_usd} other={account.total_fees_other_cad} />
+      <Money cad={account.total_dividends_cad} usd={account.total_dividends_usd} other={account.total_dividends_other_cad} />
+      <Money cad={account.cash_remaining_cad} usd={account.cash_remaining_usd} other={account.cash_remaining_other_cad} />
+      <Money cad={account.total_equity_cad} usd={account.total_equity_usd} other={account.total_equity_other_cad} />
       <td className="num text-right px-3 py-3">
-        <ColoredAmount cad={account.unrealized_gain_cad} usd={account.unrealized_gain_usd} />
+        <ColoredAmount cad={account.unrealized_gain_cad} usd={account.unrealized_gain_usd} other={account.unrealized_gain_other_cad} />
       </td>
       <td
         className={clsx(
@@ -372,7 +379,10 @@ function SummaryRow({ label, account }: { label: string; account: AccountBalance
   );
 }
 
-function Money({ cad, usd }: { cad: number; usd: number }) {
+// `other` is the CAD-equivalent of any non-CAD/non-USD currencies (BUG-001).
+// It's shown as a separate "≈ … CAD (FX)" line so foreign holdings aren't
+// dropped from the native CAD/USD breakdown. 0 for pure CAD/USD data.
+function Money({ cad, usd, other = 0 }: { cad: number; usd: number; other?: number }) {
   return (
     <td className="num text-right px-3 py-3">
       <div>
@@ -382,11 +392,14 @@ function Money({ cad, usd }: { cad: number; usd: number }) {
       {usd !== 0 && (
         <div className="text-text-muted text-xs">{fmt.moneyShort(usd)} USD</div>
       )}
+      {other !== 0 && (
+        <div className="text-text-muted text-xs">≈ {fmt.moneyShort(other)} CAD (FX)</div>
+      )}
     </td>
   );
 }
 
-function ColoredAmount({ cad, usd }: { cad: number; usd: number }) {
+function ColoredAmount({ cad, usd, other = 0 }: { cad: number; usd: number; other?: number }) {
   return (
     <>
       <div className={cad >= 0 ? "text-gain" : "text-loss"}>
@@ -396,6 +409,11 @@ function ColoredAmount({ cad, usd }: { cad: number; usd: number }) {
       {usd !== 0 && (
         <div className={clsx("text-xs", usd >= 0 ? "text-gain/70" : "text-loss/70")}>
           {fmt.moneyShort(usd)} USD
+        </div>
+      )}
+      {other !== 0 && (
+        <div className={clsx("text-xs", other >= 0 ? "text-gain/70" : "text-loss/70")}>
+          ≈ {fmt.moneyShort(other)} CAD (FX)
         </div>
       )}
     </>

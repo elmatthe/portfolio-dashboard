@@ -57,7 +57,10 @@ def simulate_buy(ticker: str, shares: float, account_type: AccountType) -> Simul
         new_total_shares * price * (usd_cad if currency == "USD" else 1.0)
     )
     total_equity_after_cad = (
-        data.combined.total_equity_cad + data.combined.total_equity_usd * usd_cad + cost_cad
+        data.combined.total_equity_cad
+        + data.combined.total_equity_usd * usd_cad
+        + data.combined.total_equity_other_cad  # CAD-equiv of foreign currencies (BUG-001)
+        + cost_cad
     )
     new_allocation_pct = (
         new_market_value_cad / total_equity_after_cad * 100

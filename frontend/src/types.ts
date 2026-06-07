@@ -272,6 +272,16 @@ export interface AccountBalances {
   total_equity_usd: number;
   unrealized_gain_cad: number;
   unrealized_gain_usd: number;
+  // CAD-equivalent of non-CAD/non-USD currencies (0.7.0, BUG-001). The Combined
+  // CAD/USD views add these on top of the native CAD/USD buckets; CAD-only /
+  // USD-only ignore them (native-currency filters). 0 for pure CAD/USD data.
+  cash_deposited_other_cad: number;
+  cash_invested_other_cad: number;
+  total_fees_other_cad: number;
+  total_dividends_other_cad: number;
+  cash_remaining_other_cad: number;
+  total_equity_other_cad: number;
+  unrealized_gain_other_cad: number;
   overall_roi_pct: number;
   investment_weight_pct: number;
 }

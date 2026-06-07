@@ -487,6 +487,22 @@ class AccountBalances(BaseModel):
     total_equity_usd: float = 0.0
     unrealized_gain_cad: float = 0.0
     unrealized_gain_usd: float = 0.0
+    # ---- CAD-equivalent of NON-CAD/NON-USD currencies (added 0.7.0, BUG-001) ----
+    # The `_cad` / `_usd` buckets above hold ONLY natively-CAD / natively-USD
+    # amounts (that is what the CAD-only / USD-only views show). Every other
+    # currency (GBP/EUR/JPY/AUD/CHF/HKD/SEK/NOK) is converted to a CAD-equivalent
+    # — via each transaction's `net_cad` for cash flows, and via live FX for
+    # holding market value — and accumulated here. The Combined CAD/USD views add
+    # these on top of the native buckets so foreign amounts are never treated as
+    # raw CAD 1:1. For a pure CAD/USD portfolio every field below stays 0.0, so
+    # the existing CAD/USD outputs are byte-identical.
+    cash_deposited_other_cad: float = 0.0
+    cash_invested_other_cad: float = 0.0
+    total_fees_other_cad: float = 0.0
+    total_dividends_other_cad: float = 0.0
+    cash_remaining_other_cad: float = 0.0
+    total_equity_other_cad: float = 0.0
+    unrealized_gain_other_cad: float = 0.0
     overall_roi_pct: float = 0.0
     investment_weight_pct: float = 0.0
 

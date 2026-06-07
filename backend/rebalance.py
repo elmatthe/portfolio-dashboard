@@ -60,6 +60,7 @@ def compute_rebalance(req: RebalanceRequest) -> RebalanceResponse:
     cash_cad = (
         data.combined.cash_remaining_cad
         + data.combined.cash_remaining_usd * usd_cad
+        + data.combined.cash_remaining_other_cad  # CAD-equiv of foreign currencies (BUG-001)
     )
 
     # In rebalance mode the rebalance pool = current holdings value (we don't
