@@ -7,6 +7,8 @@ import { api } from "../api";
 import { useToast } from "./Toast";
 import ProfileSwitcher from "./ProfileSwitcher";
 import { useProfile } from "./ProfileContext";
+import ImportMappingEditor from "./ImportMappingEditor";
+import type { ImportPreview, ImportResult } from "../types";
 
 interface Props {
   onSuccess: () => void;
@@ -26,12 +28,47 @@ export default function Upload({ onSuccess, onCancel }: Props) {
   const toast = useToast();
   const profile = useProfile();
   const [progressStage, setProgressStage] = useState<string | null>(null);
+  // When a generic / low-confidence file needs a mapping review, the preview
+  // payload lives here and the editor modal renders. null = no editor open.
+  const [preview, setPreview] = useState<ImportPreview | null>(null);
 
-  const importMut = useMutation({
+  // Shared success handler for every import path (named, generic auto, confirm).
+  const announceResult = (result: ImportResult) => {
+    toast.push(`${result.inserted} new transactions added`, "success");
+    if (result.skipped_duplicates > 0) {
+      toast.push(`${result.skipped_duplicates} already existed — skipped`, "info");
+    }
+    if (result.skipped_invalid > 0) {
+      toast.push(
+        `${result.skipped_invalid} rows skipped (invalid dates or numbers)`,
+        "warning",
+      );
+    }
+    if (result.validation_warnings && result.validation_warnings.length > 0) {
+      for (const w of result.validation_warnings.slice(0, 3)) {
+        toast.push(w, "warning");
+      }
+    }
+    if (result.unresolved_tickers.length > 0) {
+      toast.push(
+        `${result.unresolved_tickers.length} tickers couldn't be resolved`,
+        "warning",
+      );
+    }
+    setPreview(null);
+    onSuccess();
+  };
+
+  const onError = (err: Error) => {
+    toast.push(err.message || "Import failed", "error");
+  };
+
+  // The existing one-shot path — used for named / high-confidence files. The
+  // backend does parsing + ticker resolution + price fetching in one call; we
+  // rotate the label for reassurance while the request is in flight.
+  const standardImport = useMutation({
     mutationFn: async (file: File) => {
       setProgressStage("Parsing transactions");
-      // The backend does parsing + ticker resolution + price fetching in one call.
-      // We rotate the label for user reassurance while the request is in flight.
       const id = window.setInterval(() => {
         setProgressStage((s) =>
           s === "Parsing transactions"
@@ -48,53 +85,63 @@ export default function Upload({ onSuccess, onCancel }: Props) {
         setProgressStage(null);
       }
     },
-    onSuccess: (result) => {
-      toast.push(`${result.inserted} new transactions added`, "success");
-      if (result.skipped_duplicates > 0) {
-        toast.push(`${result.skipped_duplicates} already existed — skipped`, "info");
-      }
-      if (result.skipped_invalid > 0) {
-        toast.push(
-          `${result.skipped_invalid} rows skipped (invalid dates or numbers)`,
-          "warning",
-        );
-      }
-      if (
-        result.validation_warnings &&
-        result.validation_warnings.length > 0
-      ) {
-        for (const w of result.validation_warnings.slice(0, 3)) {
-          toast.push(w, "warning");
-        }
-      }
-      if (result.unresolved_tickers.length > 0) {
-        toast.push(
-          `${result.unresolved_tickers.length} tickers couldn't be resolved`,
-          "warning",
-        );
-      }
-      onSuccess();
-    },
-    onError: (err: Error) => {
-      toast.push(err.message || "Import failed", "error");
-    },
+    onSuccess: announceResult,
+    onError,
   });
+
+  // Generic-lane confirm: persist with the user's column overrides (or none,
+  // for a remembered layout that skipped the editor).
+  const confirmImport = useMutation({
+    mutationFn: ({ token, mapping }: { token: string; mapping?: Record<string, number> }) =>
+      api.importConfirm(token, mapping),
+    onSuccess: announceResult,
+    onError,
+  });
+
+  // First touch for every file: inspect it, then route.
+  const previewMut = useMutation({
+    mutationFn: (file: File) => api.importPreview(file),
+    onSuccess: (pv, file) => {
+      if (pv.mode === "generic" && pv.token) {
+        if (pv.needs_review) {
+          setPreview(pv); // low confidence → let the user confirm the mapping
+        } else {
+          confirmImport.mutate({ token: pv.token }); // remembered layout → auto
+        }
+      } else {
+        // Named / high-confidence (≥ REVIEW_CONFIDENCE_THRESHOLD) or empty —
+        // keep the existing one-shot flow unchanged.
+        standardImport.mutate(file);
+      }
+    },
+    onError,
+  });
+
+  const busy =
+    previewMut.isPending || standardImport.isPending || confirmImport.isPending;
 
   const onDrop = useCallback(
     (files: File[]) => {
-      if (files.length > 0) importMut.mutate(files[0]);
+      if (files.length > 0) previewMut.mutate(files[0]);
     },
-    [importMut],
+    [previewMut],
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: ACCEPTED,
     maxFiles: 1,
-    disabled: importMut.isPending,
+    disabled: busy,
   });
 
+  const stageLabel = previewMut.isPending
+    ? "Analysing file"
+    : confirmImport.isPending
+    ? "Importing"
+    : progressStage;
+
   return (
+    <>
     <div className="min-h-screen flex items-center justify-center p-8">
       <div className="max-w-2xl w-full">
         <div className="flex items-start justify-between mb-4">
@@ -128,14 +175,14 @@ export default function Upload({ onSuccess, onCancel }: Props) {
             isDragActive
               ? "border-accent bg-accent/5"
               : "border-border bg-surface hover:bg-white/[0.03]",
-            importMut.isPending && "pointer-events-none opacity-60",
+            busy && "pointer-events-none opacity-60",
           )}
         >
           <input {...getInputProps()} />
           <UploadIcon className="mx-auto mb-4 text-text-muted" size={48} />
-          {importMut.isPending ? (
+          {busy ? (
             <div>
-              <div className="text-lg font-medium mb-1">{progressStage}…</div>
+              <div className="text-lg font-medium mb-1">{stageLabel}…</div>
               <div className="text-sm text-text-muted">This usually takes a few seconds</div>
             </div>
           ) : (
@@ -178,5 +225,17 @@ export default function Upload({ onSuccess, onCancel }: Props) {
         </p>
       </div>
     </div>
+
+    {preview && (
+      <ImportMappingEditor
+        preview={preview}
+        busy={confirmImport.isPending}
+        onConfirm={(mapping) =>
+          confirmImport.mutate({ token: preview.token!, mapping })
+        }
+        onCancel={() => setPreview(null)}
+      />
+    )}
+    </>
   );
 }

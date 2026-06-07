@@ -122,6 +122,49 @@ export interface ImportResult {
   detected_format?: string | null;
   skipped_invalid: number;
   validation_warnings: string[];
+  /** Generic-lane diagnostics (null for named-parser imports). */
+  import_diagnostics?: Record<string, unknown> | null;
+}
+
+// ---- Universal import: mapping preview (Item 4 Step 7) ----
+
+export interface ImportPreviewField {
+  field: string;
+  col_index: number | null;
+  col_header: string | null;
+  confidence: number;
+  method: string | null;
+  required: boolean;
+}
+
+export interface ImportPreviewColumn {
+  index: number;
+  header: string;
+}
+
+export interface ImportRemapping {
+  needed_field: string;
+  blocks: string;
+  candidate_columns: { column_index: number; column_name: string }[];
+}
+
+export interface ImportPreview {
+  mode: "named" | "generic";
+  needs_review: boolean;
+  detected_broker?: string | null;
+  detected_confidence: number;
+  empty?: boolean;
+  // generic-lane only:
+  token?: string;
+  reused_saved_mapping?: boolean;
+  detected_institution?: string;
+  overall_mapping_confidence?: number;
+  source_columns?: ImportPreviewColumn[];
+  fields?: ImportPreviewField[];
+  sample_rows?: string[][];
+  row_state_counts?: Record<string, number>;
+  missing_required?: string[];
+  suggested_remappings?: ImportRemapping[];
 }
 
 export interface RealizedGain {

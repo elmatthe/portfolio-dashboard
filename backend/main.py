@@ -49,6 +49,7 @@ from backend.models import (
     UnresolvedTicker,
 )
 from backend.parser import UnknownFormatError, parse_file
+from backend.import_engine import preview as import_preview
 from backend.import_engine.diagnostics import pop_last_diagnostics
 from backend.validation import validate_transactions
 
@@ -230,76 +231,10 @@ async def import_file(file: UploadFile = File(...)) -> ImportResult:
                 + "; ".join(vr.warnings[:5]),
             )
 
-        # Resolve any tickers we haven't seen.
-        # The parser already resolves common cases (`.TO` suffix, known description
-        # patterns like APPLE INC → AAPL). For those we just persist the parser's
-        # result into ticker_map. We only invoke yfinance.search() when the parser
-        # couldn't resolve the symbol on its own — otherwise the search returns
-        # wrong matches for Questrade internal IDs (e.g. A603109 → APC.DU).
-        ticker_map = store.get_ticker_map()
-        new_resolved: list[str] = []
-        unresolved: list[str] = []
-        seen_raws: set[str] = set()
-        for t in txs:
-            if not t.raw_symbol or t.raw_symbol in seen_raws:
-                continue
-            seen_raws.add(t.raw_symbol)
-            existing = ticker_map.get(t.raw_symbol.upper())
-            if existing and existing.status == "resolved" and existing.resolved_ticker:
-                if not t.resolved_ticker:
-                    t.resolved_ticker = existing.resolved_ticker
-                continue
-
-            if t.resolved_ticker:
-                # Parser already resolved this — just persist the mapping.
-                store.save_ticker_resolution(
-                    ResolvedTicker(
-                        raw_symbol=t.raw_symbol,
-                        resolved_ticker=t.resolved_ticker,
-                        security_name=None,
-                        status="resolved",
-                        resolved_from="pattern",
-                    )
-                )
-                new_resolved.append(t.resolved_ticker)
-                continue
-
-            try:
-                res = market_data.resolve_ticker(t.raw_symbol, t.description)
-            except Exception as e:
-                logger.warning("resolve_ticker failed for %s: %s", t.raw_symbol, e)
-                res = ResolvedTicker(raw_symbol=t.raw_symbol, resolved_ticker=None, status="unresolved")
-            if res.resolved_ticker:
-                new_resolved.append(res.resolved_ticker)
-                t.resolved_ticker = res.resolved_ticker
-            else:
-                unresolved.append(t.raw_symbol)
-
-        upsert = store.upsert_transactions(txs)
-
-        # Propagate any new resolved tickers back onto stored rows
-        for raw in seen_raws:
-            cached = store.get_ticker_map().get(raw.upper())
-            if cached and cached.resolved_ticker:
-                store.update_resolved_ticker(raw, cached.resolved_ticker)
-
-        # Record import metadata
-        store.set_state("last_import_filename", file.filename or "upload")
-        store.set_state("last_import_at", _now().isoformat())
-        # Stamp the active profile so the switcher can show "last import" dates.
-        try:
-            active = profiles.get_active_profile()
-            profiles.mark_profile_imported(active.id)
-        except Exception as e:
-            logger.warning("Could not mark profile imported: %s", e)
-
-        return ImportResult(
-            inserted=upsert.inserted,
-            skipped_duplicates=upsert.skipped_duplicates,
-            total_in_db=upsert.total_in_db,
-            new_tickers_resolved=sorted(set(new_resolved)),
-            unresolved_tickers=sorted(set(unresolved)),
-            import_duration_ms=int((time.time() - started) * 1000),
+        return _finalize_import(
+            txs,
+            started=started,
+            filename=file.filename or "upload",
             detected_broker=fmt.broker,
             detected_format=fmt.fmt,
             skipped_invalid=vr.skipped,
@@ -311,6 +246,192 @@ async def import_file(file: UploadFile = File(...)) -> ImportResult:
             tmp.unlink(missing_ok=True)
         except Exception:
             pass
+
+
+def _finalize_import(
+    txs: list[Transaction],
+    *,
+    started: float,
+    filename: str,
+    detected_broker: str | None,
+    detected_format: str | None,
+    skipped_invalid: int,
+    validation_warnings: list[str],
+    import_diagnostics: dict | None,
+) -> ImportResult:
+    """Shared import back half: ticker resolution → dedup upsert → metadata.
+
+    Used by both the standard `/api/import` path and the generic-lane
+    `/api/import/confirm` path so the two stay byte-for-byte consistent. `txs`
+    must already be validated and FX-populated.
+    """
+    # Resolve any tickers we haven't seen.
+    # The parser already resolves common cases (`.TO` suffix, known description
+    # patterns like APPLE INC → AAPL). For those we just persist the parser's
+    # result into ticker_map. We only invoke yfinance.search() when the parser
+    # couldn't resolve the symbol on its own — otherwise the search returns
+    # wrong matches for Questrade internal IDs (e.g. A603109 → APC.DU).
+    ticker_map = store.get_ticker_map()
+    new_resolved: list[str] = []
+    unresolved: list[str] = []
+    seen_raws: set[str] = set()
+    for t in txs:
+        if not t.raw_symbol or t.raw_symbol in seen_raws:
+            continue
+        seen_raws.add(t.raw_symbol)
+        existing = ticker_map.get(t.raw_symbol.upper())
+        if existing and existing.status == "resolved" and existing.resolved_ticker:
+            if not t.resolved_ticker:
+                t.resolved_ticker = existing.resolved_ticker
+            continue
+
+        if t.resolved_ticker:
+            # Parser already resolved this — just persist the mapping.
+            store.save_ticker_resolution(
+                ResolvedTicker(
+                    raw_symbol=t.raw_symbol,
+                    resolved_ticker=t.resolved_ticker,
+                    security_name=None,
+                    status="resolved",
+                    resolved_from="pattern",
+                )
+            )
+            new_resolved.append(t.resolved_ticker)
+            continue
+
+        try:
+            res = market_data.resolve_ticker(t.raw_symbol, t.description)
+        except Exception as e:
+            logger.warning("resolve_ticker failed for %s: %s", t.raw_symbol, e)
+            res = ResolvedTicker(raw_symbol=t.raw_symbol, resolved_ticker=None, status="unresolved")
+        if res.resolved_ticker:
+            new_resolved.append(res.resolved_ticker)
+            t.resolved_ticker = res.resolved_ticker
+        else:
+            unresolved.append(t.raw_symbol)
+
+    upsert = store.upsert_transactions(txs)
+
+    # Propagate any new resolved tickers back onto stored rows
+    for raw in seen_raws:
+        cached = store.get_ticker_map().get(raw.upper())
+        if cached and cached.resolved_ticker:
+            store.update_resolved_ticker(raw, cached.resolved_ticker)
+
+    # Record import metadata
+    store.set_state("last_import_filename", filename)
+    store.set_state("last_import_at", _now().isoformat())
+    # Stamp the active profile so the switcher can show "last import" dates.
+    try:
+        active = profiles.get_active_profile()
+        profiles.mark_profile_imported(active.id)
+    except Exception as e:
+        logger.warning("Could not mark profile imported: %s", e)
+
+    return ImportResult(
+        inserted=upsert.inserted,
+        skipped_duplicates=upsert.skipped_duplicates,
+        total_in_db=upsert.total_in_db,
+        new_tickers_resolved=sorted(set(new_resolved)),
+        unresolved_tickers=sorted(set(unresolved)),
+        import_duration_ms=int((time.time() - started) * 1000),
+        detected_broker=detected_broker,
+        detected_format=detected_format,
+        skipped_invalid=skipped_invalid,
+        validation_warnings=validation_warnings,
+        import_diagnostics=import_diagnostics,
+    )
+
+
+# ---------- generic-lane mapping preview / confirm (Item 4 Step 7) ----------
+
+class ImportConfirmRequest(BaseModel):
+    """Body for `/api/import/confirm`: a preview token + optional column overrides."""
+
+    token: str
+    # canonical-field value → source column index; -1 / out-of-range = unmap.
+    user_mapping: dict[str, int] | None = None
+
+
+@app.post("/api/import/preview")
+async def import_preview_endpoint(file: UploadFile = File(...)) -> dict:
+    """Pre-import inspection for the generic lane.
+
+    Runs detection + the generic pipeline up to (NOT including) persistence:
+    no FXService, no validation, no store writes. A named parser (detection
+    confidence ≥ REVIEW_CONFIDENCE_THRESHOLD) short-circuits with
+    `mode="named"`, telling the frontend to POST to `/api/import` unchanged.
+    A generic file returns a token + the editable field↔column map.
+    """
+    suffix = Path(file.filename or "upload").suffix.lower() or ".csv"
+    tmp = Path(tempfile.gettempdir()) / f"portfolio_preview_{int(time.time() * 1000)}{suffix}"
+    try:
+        with open(tmp, "wb") as f:
+            f.write(await file.read())
+        try:
+            return import_preview.build_preview(tmp, file.filename or "upload")
+        except Exception as e:
+            logger.exception("Import preview failed: %s", e)
+            raise HTTPException(status_code=400, detail=f"Could not preview this file: {e}")
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+@app.post("/api/import/confirm", response_model=ImportResult)
+async def import_confirm_endpoint(body: ImportConfirmRequest) -> ImportResult:
+    """Persist a previewed generic import with the user's column overrides.
+
+    Re-runs classify with the overrides applied, then the full back half
+    (FX already applied in the engine → validate → dedup → store). Tokens are
+    one-shot: 404 if unknown/expired, 410 if already confirmed.
+    """
+    started = time.time()
+    try:
+        txs, diag, filename = import_preview.confirm_preview(body.token, body.user_mapping)
+    except import_preview.PreviewTokenUnknown:
+        raise HTTPException(
+            status_code=404,
+            detail="Import preview not found or expired — please re-upload the file.",
+        )
+    except import_preview.PreviewTokenUsed:
+        raise HTTPException(
+            status_code=410,
+            detail="This import preview was already confirmed.",
+        )
+
+    import_diagnostics = diag.to_dict() if diag else None
+    detected_format = Path(filename).suffix.lstrip(".").lower() or None
+
+    vr = validate_transactions(txs)
+    txs = vr.valid
+    if not txs:
+        return ImportResult(
+            inserted=0,
+            skipped_duplicates=0,
+            total_in_db=store.upsert_transactions([]).total_in_db,
+            detected_broker="generic",
+            detected_format=detected_format,
+            skipped_invalid=vr.skipped,
+            validation_warnings=(
+                vr.warnings[:10]
+                or ["No rows could be mapped with the chosen columns — see diagnostics."]
+            ),
+            import_diagnostics=import_diagnostics,
+        )
+
+    return _finalize_import(
+        txs,
+        started=started,
+        filename=filename,
+        detected_broker="generic",
+        detected_format=detected_format,
+        skipped_invalid=vr.skipped,
+        validation_warnings=vr.warnings[:10],
+        import_diagnostics=import_diagnostics,
+    )
 
 
 # ---------- transactions ----------

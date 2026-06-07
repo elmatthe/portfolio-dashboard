@@ -13,6 +13,7 @@ import type {
   DividendReport,
   HistoricalDataPoint,
   Holding,
+  ImportPreview,
   ImportResult,
   ImportStatus,
   PortfolioData,
@@ -54,6 +55,12 @@ const IS_DEV: boolean = !!import.meta.env?.DEV;
 function baseUrl(): string {
   return IS_DEV ? "" : `http://localhost:${_backendPort}`;
 }
+
+// Detection-confidence threshold (mirrors backend
+// import_engine.preview.REVIEW_CONFIDENCE_THRESHOLD). At or above it a named
+// parser owns the file and we use the one-shot /api/import path; below it the
+// file is generic and routes through the mapping-preview editor.
+export const REVIEW_CONFIDENCE_THRESHOLD = 0.7;
 
 // Backwards-compat: many callers read BASE directly inside template literals
 // (`${BASE}/api/foo`). We expose a string-like proxy whose `toString()` /
@@ -110,6 +117,30 @@ export const api = {
     }
     return res.json();
   },
+  // Generic-lane: inspect a file before importing. Returns a routing decision
+  // (named → use importFile; generic → show the mapping editor with a token).
+  importPreview: async (file: File): Promise<ImportPreview> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`${BASE}/api/import/preview`, { method: "POST", body: fd });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const body = await res.json();
+        detail = body.detail || body.error || detail;
+      } catch {
+        /* */
+      }
+      throw new Error(detail);
+    }
+    return res.json();
+  },
+  // Persist a previewed generic import with the user's column overrides.
+  importConfirm: (token: string, user_mapping?: Record<string, number>): Promise<ImportResult> =>
+    request<ImportResult>("/api/import/confirm", {
+      method: "POST",
+      body: JSON.stringify({ token, user_mapping: user_mapping ?? null }),
+    }),
   portfolio: async (account?: string, period?: string): Promise<PortfolioData> => {
     const res = await fetch(
       `${BASE}/api/portfolio${withAccountAndPeriod(account, period)}`,
