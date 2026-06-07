@@ -59,6 +59,7 @@ py -m PyInstaller backend\main.py `
   --collect-all pandas `
   --collect-all openpyxl `
   --collect-all pdfplumber `
+  --collect-all rapidfuzz `
   --collect-all reportlab `
   --collect-all matplotlib `
   --distpath backend-dist\ `

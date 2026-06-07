@@ -30,6 +30,7 @@ pyinstaller backend/main.py \
   --collect-all pandas \
   --collect-all openpyxl \
   --collect-all pdfplumber \
+  --collect-all rapidfuzz \
   --distpath backend-dist/ \
   --workpath build/
 

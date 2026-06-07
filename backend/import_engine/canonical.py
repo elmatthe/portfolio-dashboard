@@ -330,3 +330,41 @@ GLOBAL_ACTION_OR_INFERABLE: tuple[CanonicalField, ...] = (
 def rule_for(action: CanonicalAction) -> MinSchemaRule:
     """Look up the minimum-field rule for a canonical action."""
     return MIN_SCHEMA[action]
+
+
+def requirement_gaps(mapped: set[CanonicalField], rule: MinSchemaRule) -> list[str]:
+    """Evaluate a set of present fields against a MinSchemaRule's hard contract.
+
+    Returns a list of unmet-requirement tokens (empty == fully satisfied):
+      - a missing `required` field            → that field's value, e.g. "net_amount"
+      - an unsatisfied `any_of` group          → "a|b|c" (need at least one of)
+      - an unsatisfied `n_of` group            → "2_of:a|b|c" (need at least n of)
+
+    Used by the column classifier (file-level, against FILE_LEVEL_RULE) and by
+    Step 4 (per-row, against the row's action rule). `derivable` fields are NOT
+    treated as satisfied here — presence is what's checked; Step 4 layers
+    derivation on top before deciding a row is unmappable.
+    """
+    gaps: list[str] = []
+    for f in rule.required:
+        if f not in mapped:
+            gaps.append(f.value)
+    for group in rule.any_of:
+        if not any(f in mapped for f in group):
+            gaps.append("|".join(f.value for f in group))
+    for n, group in rule.n_of:
+        if sum(1 for f in group if f in mapped) < n:
+            gaps.append(f"{n}_of:" + "|".join(f.value for f in group))
+    return gaps
+
+
+# A synthetic rule for FILE-LEVEL mapping validation (used by the column
+# classifier): a usable transaction table needs a date column (trade OR
+# settlement) AND at least one transactional signal column.
+FILE_LEVEL_RULE = MinSchemaRule(
+    action=_A.CASH_ADJUSTMENT,  # placeholder; only the field groups matter here
+    any_of=(
+        (_F.TRANSACTION_DATE, _F.SETTLEMENT_DATE),
+        (_F.ACTION, _F.NET_AMOUNT, _F.DEBIT, _F.CREDIT, _F.QUANTITY, _F.TICKER),
+    ),
+)
