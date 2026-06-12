@@ -175,11 +175,17 @@ export interface RealizedGain {
   shares_sold: number;
   sale_price: number;
   acb_per_share: number;
+  /** CAD ACB per share of the shares sold, built at acquisition-date FX (BUG-002). */
+  acb_per_share_cad?: number | null;
   gain_per_share: number;
   /** Native-currency gain (CAD for CAD positions, USD for USD positions, etc.). */
   total_gain: number;
-  /** CAD-equivalent at the transaction-date FX rate; authoritative for tax aggregates. */
+  /**
+   * CRA-correct CAD gain (BUG-002): CAD proceeds at disposition-date FX minus
+   * CAD ACB at acquisition-date FX. Authoritative for tax aggregates.
+   */
   total_gain_cad?: number | null;
+  /** Disposition-date FX rate used for the proceeds leg. */
   fx_rate_to_cad?: number | null;
   commission: number;
   currency: Currency;
@@ -192,6 +198,8 @@ export interface SuperficialLossAdjustment {
   transaction_date: string;
   ticker: string;
   denied_loss: number;
+  /** CAD loss denied, from the CAD ledger (BUG-002). */
+  denied_loss_cad?: number | null;
   repurchase_date?: string | null;
   note: string;
 }

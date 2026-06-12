@@ -161,8 +161,11 @@ class RealizedGain(BaseModel):
     """A single sell event with the gain it produced.
 
     `total_gain` is in the security's native currency. `total_gain_cad` is the
-    CAD-equivalent at the transaction date FX rate — use the CAD field for any
-    aggregation across the report.
+    CRA-correct CAD gain (BUG-002): CAD proceeds at the disposition-date FX rate
+    minus the CAD ACB of the shares sold, where CAD ACB was built at each buy's
+    acquisition-date FX rate. Use the CAD field for any aggregation across the
+    report. `acb_per_share_cad` is that CAD ACB per share at the time of sale;
+    `fx_rate_to_cad` is the disposition-date rate used for the proceeds leg.
     """
 
     transaction_date: date
@@ -172,6 +175,7 @@ class RealizedGain(BaseModel):
     shares_sold: float
     sale_price: float
     acb_per_share: float
+    acb_per_share_cad: float | None = None
     gain_per_share: float
     total_gain: float
     total_gain_cad: float | None = None
@@ -187,6 +191,9 @@ class SuperficialLossAdjustment(BaseModel):
     transaction_date: date
     ticker: str
     denied_loss: float
+    # CAD loss denied, from the CAD ledger (BUG-002). None only for adjustments
+    # serialized before this field existed.
+    denied_loss_cad: float | None = None
     repurchase_date: date | None = None
     note: str = ""
 
@@ -201,7 +208,11 @@ class AcbHolding(BaseModel):
 
     total_shares: float = 0.0
     acb_per_share: float = 0.0
+    # CAD ACB per share at acquisition-date FX (BUG-002) — the tax-correct cost
+    # side. Native acb_per_share stays the display/reconciliation figure.
+    acb_per_share_cad: float = 0.0
     total_cost: float = 0.0
+    total_cost_cad: float = 0.0
     total_commission: float = 0.0
     dividends_received: float = 0.0
 
