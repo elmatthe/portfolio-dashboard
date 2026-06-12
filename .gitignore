@@ -69,4 +69,15 @@ frontend/test-results/
 frontend/playwright-report/
 
 # Master Debug test run logs (build artifacts, not source)
-markdown-instructions/build_version_test_logs/*.txt
+md-instructions/build_version_test_logs/*.txt
+
+# AI workspace / planning markdowns — local working files, not product docs.
+# Only the two living project docs (BRIEFING, CHANGELOG) stay tracked.
+AI-WORKSPACE.md
+.codex/
+md-instructions/*.md
+!md-instructions/BRIEFING.md
+!md-instructions/CHANGELOG.md
+
+# Legacy pre-rename instructions folder (replaced by md-instructions/)
+markdown-instructions/
