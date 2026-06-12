@@ -1119,12 +1119,17 @@ def dividend_report(account: str | None = None, period: str | None = None) -> Di
     """Aggregate dividend income from the transaction history.
 
     Produces:
-      - monthly bar buckets (CAD-equivalent at the live FX rate)
+      - monthly bar buckets (CAD-equivalent at the transaction-date FX rate)
       - upcoming projected payments based on each ticker's observed cadence
-      - per-holding yield-on-cost (annual dividends / total cost)
+      - per-holding yield-on-cost (annual dividends / total cost, both CAD at
+        their own trade-date FX)
       - trailing-12-month total and full-history annual average
       - period-scoped total when `period` is set (the trailing-12-month and
         yield-on-cost stay full-history per the plan — they have their own meaning)
+
+    All CAD figures use trade-date FX (BUG-004). Previously only USD was
+    converted — at the LIVE rate — and every other currency fell through 1:1
+    as raw CAD.
     """
     from datetime import date as date_cls, timedelta
 
@@ -1139,17 +1144,29 @@ def dividend_report(account: str | None = None, period: str | None = None) -> Di
     period_start = period_to_start_date(period_key) if period_key != "all" else None
 
     dividends = [t for t in txs if t.action == "DIVIDEND" and t.net_amount > 0]
-    usd_cad, _ = market_data.get_fx("USDCAD")
 
-    def to_cad(amount: float, currency: str) -> float:
-        """Convert an amount in this ledger's currency to CAD using the live rate."""
-        return amount * usd_cad if currency == "USD" else amount
+    fx_svc = get_fx_service()
+
+    def _div_cad(t: Transaction) -> float:
+        """Transaction-date CAD equivalent of a dividend row (BUG-004).
+
+        Prefers the stored `net_cad` (the rate the row was imported/entered
+        at), then the stored row rate, then a trade-date FXService lookup for
+        legacy rows that predate net_cad population. Never the live USD/CAD
+        rate, and never a raw 1:1 fallthrough for non-CAD currencies."""
+        if t.net_cad is not None:
+            return t.net_cad
+        if t.net_amount is None:
+            return 0.0
+        if t.fx_rate_to_cad is not None:
+            return round(t.net_amount * t.fx_rate_to_cad, 2)
+        return fx_svc.convert_to_cad(t.net_amount, t.currency, t.transaction_date)
 
     # Monthly buckets (every month from first dividend to current month, gaps as $0).
     monthly_map: dict[str, float] = defaultdict(float)
     for d in dividends:
         key = f"{d.transaction_date.year:04d}-{d.transaction_date.month:02d}"
-        monthly_map[key] += to_cad(d.net_amount, d.currency)
+        monthly_map[key] += _div_cad(d)
 
     monthly: list[MonthlyDividend] = []
     if monthly_map:
@@ -1167,7 +1184,7 @@ def dividend_report(account: str | None = None, period: str | None = None) -> Di
     # Trailing 12 months
     cutoff_12mo = date_cls.today() - timedelta(days=365)
     trailing = sum(
-        to_cad(d.net_amount, d.currency) for d in dividends if d.transaction_date >= cutoff_12mo
+        _div_cad(d) for d in dividends if d.transaction_date >= cutoff_12mo
     )
 
     # Annual total: trailing-12mo if we have at least a year of history, else
@@ -1179,7 +1196,7 @@ def dividend_report(account: str | None = None, period: str | None = None) -> Di
         if span_days >= 365:
             annual_total = trailing
         else:
-            total_so_far = sum(to_cad(d.net_amount, d.currency) for d in dividends)
+            total_so_far = sum(_div_cad(d) for d in dividends)
             annual_total = total_so_far * 365 / span_days
 
     # Upcoming: per ticker, average days between past dividend payments and
@@ -1221,7 +1238,7 @@ def dividend_report(account: str | None = None, period: str | None = None) -> Di
         recent_dates = unique_dates[-3:]
         avg_amount = (
             sum(
-                to_cad(ev.net_amount, ev.currency)
+                _div_cad(ev)
                 for d in recent_dates
                 for ev in per_date_amount[d]
             )
@@ -1253,9 +1270,12 @@ def dividend_report(account: str | None = None, period: str | None = None) -> Di
             continue
         first_div = min(d.transaction_date for d in ticker_divs)
         span = (today - first_div).days or 1
-        total_div_cad = sum(to_cad(d.net_amount, d.currency) for d in ticker_divs)
+        total_div_cad = sum(_div_cad(d) for d in ticker_divs)
         annual = total_div_cad if span >= 365 else total_div_cad * 365 / span
-        cost_cad = h.total_cost * usd_cad if h.currency == "USD" else h.total_cost
+        # CAD cost basis at acquisition-date FX (from the BUG-002 CAD ledger);
+        # identical to native total_cost for CAD positions. Previously USD used
+        # the live rate and other currencies fell through 1:1.
+        cost_cad = h.total_cost_cad
         yoc = (annual / cost_cad * 100) if cost_cad > 0 else 0.0
         by_holding.append(
             DividendYieldRow(
@@ -1271,7 +1291,7 @@ def dividend_report(account: str | None = None, period: str | None = None) -> Di
     period_total = 0.0
     if period_start is not None:
         period_total = sum(
-            to_cad(d.net_amount, d.currency)
+            _div_cad(d)
             for d in dividends
             if d.transaction_date >= period_start
         )
