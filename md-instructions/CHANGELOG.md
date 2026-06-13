@@ -50,6 +50,15 @@ weight %, attribution, annual report, period dividends, simulator, and
 rebalancer still treating foreign amounts as CAD 1:1 in places) remain open
 for the next pass.
 
+**Verification (2026-06-12):** full Master Debug and Test Run against a
+freshly repackaged installer (the prior installer predated the fixes):
+**446 backend pytest + 113 root pytest, 0 failures; tsc 0 errors; 27
+Playwright E2E passed against the packaged build** including the generic
+import editor flow end-to-end. Log:
+`build_version_test_logs/v0.7.0_20260612_194515_testlog.txt`. The Section 6b
+manual checks (hands-on in the installed app) are the remaining gate before
+merge to main.
+
 ### Added
 
 - **Universal import pipeline** (`backend/import_engine/`) — built across eight
@@ -126,7 +135,9 @@ for the next pass.
 
 ### Tests
 
-- Suite grew from **126** (shipped in 0.6.4) to **303** passing. New universal
+- Suite grew from **126** (shipped in 0.6.4) to **303** passing at release —
+  and to **446 backend + 113 root** after the audit bug-fix campaign added the
+  8 BUG-00x regression suites. New universal
   coverage: `test_universal_classify.py`, `test_universal_readers.py`,
   `test_universal_pdf.py`, `test_universal_preview.py`, and the cross-system
   `test_universal_integration.py` (named-parser routing invariant for all 11
