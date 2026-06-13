@@ -204,6 +204,11 @@ class AcbHolding(BaseModel):
     ticker: str
     security_name: str | None = None
     account_type: AccountType
+    # Display ownership (BUG-006): the account_number that holds the position
+    # (majority holder if the same security is genuinely split across two
+    # accounts of the same type). The ACB pool itself stays keyed by
+    # (ticker, account_type) per CRA.
+    account_number: str = ""
     currency: Currency = "CAD"
 
     total_shares: float = 0.0
@@ -429,6 +434,8 @@ class Holding(BaseModel):
     raw_symbol: str | None = None
     security_name: str | None = None
     account_type: AccountType
+    # Which account's AccountBalances row owns this position's equity (BUG-006).
+    account_number: str = ""
     currency: Currency = "CAD"
     exchange: str | None = None
 

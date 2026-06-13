@@ -221,6 +221,8 @@ export interface Holding {
   raw_symbol?: string | null;
   security_name?: string | null;
   account_type: AccountType;
+  /** Which account's balances row owns this position's equity (BUG-006). */
+  account_number?: string;
   currency: Currency;
   exchange?: string | null;
   total_shares: number;

@@ -81,6 +81,11 @@ class _AcbLedger:
     dividends_received: float = 0.0
     realized: list[_LedgerEntry] = field(default_factory=list)
     sloss_adjustments: list[SuperficialLossAdjustment] = field(default_factory=list)
+    # Display-only ownership ledger (BUG-006): remaining shares per
+    # account_number. NEVER feeds ACB math — the tax pool above stays keyed by
+    # (ticker, account_type) per CRA. Used only to tell the dashboard which
+    # AccountBalances row this position's equity belongs to.
+    shares_by_account: dict[str, float] = field(default_factory=dict)
 
     @property
     def acb_per_share(self) -> float:
@@ -166,6 +171,9 @@ def compute(
             ledger.total_cost_cad += (cost + commission) * buy_fx
             ledger.total_shares += tx.quantity
             ledger.total_commission_paid += commission
+            ledger.shares_by_account[tx.account_number] = (
+                ledger.shares_by_account.get(tx.account_number, 0.0) + tx.quantity
+            )
             buys_index[key].append((tx.transaction_date, tx.quantity))
 
         elif tx.action == "SELL":
@@ -190,6 +198,8 @@ def compute(
             ledger.total_shares -= shares_sold
             ledger.total_cost -= acb_per_share * shares_sold
             ledger.total_cost_cad -= acb_per_share_cad * shares_sold
+            held_in_acct = ledger.shares_by_account.get(tx.account_number, 0.0)
+            ledger.shares_by_account[tx.account_number] = max(0.0, held_in_acct - shares_sold)
             if ledger.total_shares <= 1e-9:
                 ledger.total_shares = 0.0
                 ledger.total_cost = 0.0
@@ -222,6 +232,8 @@ def compute(
                 ratio_target = (ledger.total_shares + tx.quantity) / ledger.total_shares
                 ledger.total_shares *= ratio_target
                 # total_cost stays the same; only per-share value moves.
+                for acct in ledger.shares_by_account:
+                    ledger.shares_by_account[acct] *= ratio_target
 
     # Pass 2: superficial-loss adjudication.
     # CRA: loss is denied when the *same* security is held (or re-bought) within
@@ -316,10 +328,22 @@ def compute(
 
         total_realized = sum(r.total_gain for r in realized_models)
 
+        # Display ownership (BUG-006): the account_number holding the largest
+        # remaining share count (ties broken by name for determinism; the sole
+        # account in the single-account case). Tax pooling above is untouched —
+        # this only tells the dashboard which AccountBalances row the
+        # position's equity belongs to.
+        owner_account = ""
+        if ledger.shares_by_account:
+            owner_account = max(
+                ledger.shares_by_account.items(), key=lambda kv: (kv[1], kv[0])
+            )[0]
+
         holdings[(ticker, account_type)] = AcbHolding(
             ticker=ticker,
             security_name=(security_names or {}).get(ticker),
             account_type=account_type,
+            account_number=owner_account,
             currency=ledger.currency,
             total_shares=round(ledger.total_shares, 6),
             acb_per_share=round(ledger.acb_per_share, 4),

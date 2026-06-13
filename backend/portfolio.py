@@ -271,6 +271,7 @@ def build_portfolio(
                 ticker=ticker,
                 security_name=acb.security_name,
                 account_type=account,
+                account_number=acb.account_number,
                 currency=currency,
                 exchange=_infer_exchange(ticker),
                 total_shares=acb.total_shares,
@@ -720,13 +721,15 @@ def _aggregate_accounts(
             comm_cad = abs(t.commission) * (t.fx_rate_to_cad or 1.0)
             _add_currency_bucket(bal, t.currency, "total_fees", abs(t.commission), comm_cad)
 
-    # Equity from holdings — attribute each holding to the balance row whose
-    # account_type matches. (Holdings carry account_type, not account_number;
-    # if the user ever has multiple accounts of the same type this'd need
-    # a richer Holding key.)
+    # Equity from holdings — attribute each holding to the balance row that
+    # actually owns it, keyed by account_number (BUG-006: two accounts of the
+    # same type previously collapsed onto whichever row the type-keyed dict
+    # kept last). account_type remains a fallback for holdings without an
+    # account_number. Display ownership only — tax ACB stays pooled per
+    # (ticker, account_type) in acb.py.
     by_type = {bal.account_type: bal for bal in by_acct.values()}
     for h in holdings:
-        bal = by_type.get(h.account_type)
+        bal = by_acct.get(h.account_number) or by_type.get(h.account_type)
         if bal is None:
             continue
         if h.market_value is None:
