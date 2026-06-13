@@ -1,0 +1,286 @@
+========================================================
+PORTFOLIO DASHBOARD — MASTER DEBUG AND TEST RUN
+Build Version : 0.7.0 (post-audit bug-fix build)
+Run Timestamp : 2026-06-12 19:45:15
+Run Duration  : ~25 min (pytest 27s+9s + tsc <10s + full repackage ~19 min + playwright 1.5m + 18s re-run)
+Total Tests   : 586 automated (446 backend pytest + 113 root pytest + 27 Playwright)
+Passed        : 586
+Failed        : 0 (one stale TEST-HARNESS defect found and fixed mid-run — see Section 3 note)
+Skipped       : 9 Playwright (dev-server-only specs; see note)
+========================================================
+
+CONTEXT
+  This run gates the 0.7.0 post-release audit bug-fix campaign. An independent
+  Codex audit found 8 defects (BUG-001…BUG-008); all were fixed in one commit
+  each on feat/item4-universal-import:
+    BUG-001 4d15726  multi-currency aggregation → CAD-equivalent via net_cad
+    BUG-002 fab5726  CRA ACB — CAD cost basis at acquisition-date FX
+    BUG-003 764bc7b  generic import persists cash deposits/withdrawals
+    BUG-004 2cc9451  dividend report converts at transaction-date FX
+    BUG-005 226aa44  manual edit recomputes gross/net/FX/net_cad
+    BUG-006 de10414  holdings attributed to owning account_number
+    BUG-007 cefdbc3  removed unused today-FX lookup in ACB
+    BUG-008 64363cc  README version 0.7.0
+  The audit's secondary findings ADD-001…ADD-007 remain OPEN (out of scope for
+  this run; next pass).
+
+  The previous installer (built 2026-06-07 08:00) PREDATED all 8 fixes, so the
+  full pipeline was rebuilt before any UI test ran:
+    PyInstaller backend.exe → Vite frontend/dist → electron-builder NSIS.
+  Installer: release/Portfolio Dashboard Setup 0.7.0.exe (199.8 MB,
+  built 2026-06-12 19:41). All Playwright runs below are against this fresh
+  release/win-unpacked/ build.
+
+========================================================
+
+SECTION 0 — Crash Recovery & Reset
+
+  [✓] Portfolio endpoint never returns unhandled 500 — test_crash_recovery suite green
+  [✓] Import validation — malformed dates / NaN / Inf rejected pre-insert
+  [✓] Factory reset wipes all profiles, data, cache — backend tests green
+  [✓] /api/portfolio returns 200 after reset
+  [✓] /api/import/status returns has_data=false after reset
+  [✓] /health reports db_corrupt status
+  [✓] /api/portfolio returns 200 from inside the packaged app (release-probe)
+
+SECTION 11b — Multi-Currency FX
+
+  [✓] Static fallback rates within expected ranges (USD/GBP/EUR/JPY/AUD/CHF/HKD/SEK/NOK)
+  [✓] CAD = 1.0 (identity)
+  [✓] FX populated on every parsed HSBC row; foreign rows have fx_rate != 1.0
+  [✓] net_cad ≈ net_amount × fx_rate within tolerance
+  [✓] JPY edge cases — large nominal conversion without overflow
+  [✓] GBP/USD/JPY foreign sell → positive CAD proceeds
+  [✓] GET /api/portfolio 200 after HSBC import; all period filters 200
+  [✓] NEW (BUG-001): all 8 non-CAD/non-USD currencies aggregate via *_other_cad
+      CAD-equivalent buckets — test_bug001_multicurrency_aggregation green
+  [✓] NEW (BUG-004): dividend report converts every currency at transaction-date
+      FX — test_bug004 suite green
+
+SECTION 1 — Backend Unit Tests
+
+  [✓] pytest backend/tests/ — 446 passed, 0 failures, 0 errors (27.45s)
+  [✓] test_wealthsimple_regression — green
+  [✓] test_questrade_regression — green
+  [✓] Parser row-count suite (RBC/CIBC/TD/IB/NB/Fidelity/BMO/Scotia/HSBC CSV+XLSX+PDF) — green
+  [✓] test_fx_population / test_net_cad_non_null — green
+  [✓] test_dedup_reimport — green
+  [✓] ACB suite — walk order, superficial loss, per-(ticker,account_type) separation — green
+  [✓] Modified-Dietz + period clamping + combined ROI + TFSA cad_only — green
+  [✓] Parser registry integrity — green
+  [✓] Manual-entry suite (insert/fx-at-trade-date/dedup/edit/delete-unwind/oversell/classification) — green
+  [✓] NEW (BUG-002): test_bug002 CAD-ACB suite — acquisition-date cost basis,
+      disposition-date proceeds — green
+  [✓] NEW (BUG-003): test_bug003 generic cash-persistence suite — green
+  [✓] NEW (BUG-005): test_bug005_manual_edit_recompute — 9 API-level tests green
+  [✓] NEW (BUG-006): test_bug006_account_rollup — 8 tests green (display by
+      account_number, CRA pooling unchanged, single-account invariant)
+  [✓] NEW (BUG-007): test_bug007_no_today_fx_lookup — 2 tests green (strict
+      date-keyed FX callable never asked for today's rate)
+  [✓] Root suite: pytest tests/ — 113 passed, 0 failures (8.53s)
+  Warnings: 1 (urllib3/chardet version-match RequestsDependencyWarning, non-blocking)
+
+SECTION 2 — TypeScript Compilation
+
+  [✓] npx tsc --noEmit — 0 errors
+
+SECTION 3 — App Launch and Basic Renderer Health (Playwright on packaged build)
+
+  [!] HARNESS FIX (not an app bug): master-debug-run.spec.ts's beforeAll waited
+      on app.firstWindow(), which is the SPLASH window; the main process
+      destroys it when the renderer is ready, so the spec died with "Target
+      page closed" before any test ran. The same packaged exe launched cleanly
+      3× in the same run under release-probe-0.7.0.spec.ts and
+      visual-probe.spec.ts, which both wait for the real (non data:) window.
+      Fixed the spec to use the same main-window wait; all 21 tests then ran
+      and passed. Spec fix committed with this log.
+  [✓] App launches without crash — Electron starts from release/win-unpacked
+  [✓] Renderer window opens (not blank)
+  [✓] No "Cannot read properties" or similar in body
+  [✓] Dashboard or Upload renders (not stuck spinner)
+  [✓] Navigation bar renders
+
+SECTION 4 — Modal Positioning and Behavior
+
+  [✓] Settings panel — opens centered, not in header (ModalPortal-mounted)
+  [✓] Settings panel — closes on Escape
+  [✓] Settings panel — ARIA attributes (role=dialog, aria-modal=true)
+
+SECTION 5 — Profile Management
+
+  [✓] Profile switcher is visible in banner
+  [✓] Fresh-profile create + activate via API exercised by release-probe
+
+SECTION 6 — File Import (Upload Flow)
+
+  [✓] Named-broker parser detection/row counts/dedup — covered by the 446-test
+      backend suite (test_detection, test_parsers, test_profiles)
+  [✓] Upload zone renders and accepts a file in the packaged app (release-probe)
+  [✓] FX rate + net_cad non-null on every imported row — backend suite green
+
+SECTION 6b — Universal / Generic Import
+
+  Automated:
+  [✓] pytest universal suite — 180 passed, 0 failures (all nine
+      test_universal_*.py files: aliases, canonical, classify_columns,
+      classify_tx, generic_parser, integration, pdf, preview, readers)
+  [✓] All 11 named fixtures detect ≥ 0.70 and route to their OWN parser, never "generic"
+  [✓] All 11 named fixtures preview as mode="named" (no editor token)
+  [✓] Messy generic CSV → preview mode="generic", needs_review=true
+  [✓] Generic confirm inserts rows with broker="generic"
+  [✓] /api/portfolio returns 200 (real payload) after generic import
+  [✓] /api/transactions?broker=generic returns the generic rows
+  [✓] /api/attribution returns 200 after a generic import
+  [✓] Re-confirm same file inserts 0 (dedup), /api/portfolio stays 200
+  [✓] Confirmed layout remembered by header fingerprint (reused_saved_mapping)
+  [✓] TypeScript — 0 errors
+  [✓] PACKAGED-BUILD E2E (release-probe-0.7.0.spec.ts, 3/3 passed):
+      upload zone renders → messy CSV drop opens the mapping editor →
+      Confirm Import inserts > 0 rows tagged broker="generic" →
+      /api/portfolio still 200. Screenshots in release/probe-shots/.
+  [~] import-mapping.spec.ts (dev-server variant of the same flow) — skipped:
+      requires Vite dev server at localhost:5173 by design; the packaged-build
+      release-probe above covers the identical user flow against the shipped
+      bundle, which is the stronger check.
+
+  Manual verification (requires user, in the installed app):
+  [ ] manual verification pending — requires user to run in the installed app:
+      drop a file from an institution NOT in the named list → mapping editor
+      opens (does NOT silently import)
+  [ ] manual verification pending — requires user to run in the installed app:
+      in the editor, correct one wrong column assignment via its dropdown
+  [ ] manual verification pending — requires user to run in the installed app:
+      Confirm Import → rows appear in Transactions under "Imported (Generic)"
+  [ ] manual verification pending — requires user to run in the installed app:
+      re-import the same file → 0 new rows (dedup), no error toast
+  [ ] manual verification pending — requires user to run in the installed app:
+      drop one of the 11 named-broker files → editor does NOT open; named
+      one-shot import toast appears
+
+SECTION 7 — Dashboard Views
+
+  [✓] Dashboard loads content (no stuck spinner)
+  [✓] Light/dark mode toggle is visible
+  [✓] Per-view Period Return values probed in the packaged build (visual-probe)
+
+SECTION 8 — Transactions Page
+
+  [✓] Transactions nav button reachable; page renders
+  [✓] Manual source group is present
+  [✓] Add Transaction button is visible
+
+SECTION 9 — Manual Transaction Entry
+
+  [✓] Add Transaction modal opens centered (role=dialog, aria-modal=true)
+  [✓] ARIA attributes present; closes on Escape
+  [✓] Source badge shows "Manual" as read-only
+  [✓] NEW (BUG-005): editing a manual row recomputes gross/net/FX/net_cad and
+      the dashboard Combined-CAD Total Equity reflects it — 9 API-level
+      regression tests green (test_bug005_manual_edit_recompute)
+  [~] manual-entry.spec.ts (8 tests) — skipped: requires dev server at
+      localhost:5173 by design; modal behaviour covered by
+      master-debug-run.spec.ts against the packaged build, and the
+      edit-recompute math by the BUG-005 backend suite.
+
+SECTION 10 — Mathematical Accuracy
+
+  [✓] ACB engine — single/weighted buys, partial/full sell, realized gain,
+      superficial loss (30-day inclusive), per-(ticker,account_type)
+      separation, commission in cost basis, TFSA non-taxable — green
+  [✓] NEW (BUG-002): CAD capital gains use acquisition-date FX for ACB and
+      disposition-date FX for proceeds (CRA-correct), not one live rate
+  [✓] NEW (BUG-006): same-ticker positions in two same-type accounts pool ACB
+      for tax but display as separate per-account rows; combined invariant holds
+  [✓] FX — CAD identity, trade-date rates, net_cad = net × fx, offline static
+      fallback, populate_transaction idempotency — green
+  [✓] Modified-Dietz — simple period, TRANSFER exclusion, clamping,
+      clamped-equals-lifetime reconciliation — green
+  [✓] TFSA contribution room rules — green
+
+SECTION 11 — Data Fetching and External Services
+
+  [✓] /api/portfolio 200 with non-empty data when txs exist
+  [✓] /api/transactions 200 with correct rows
+  [✓] /api/import + /api/import/preview + /api/import/confirm — green
+  [✓] /api/attribution 200
+  [✓] Backend localhost-only (verified via packaged-app launch)
+  [✓] NEW (BUG-007): ACB engine no longer requests today's FX rate — strict
+      date-keyed callables (offline/test environments) can never crash compute()
+
+SECTION 12 — Settings Panel
+
+  [✓] Settings panel opens (packaged build)
+
+SECTION 13–16 — Reports, Simulator, Alerts, Dividends
+
+  [~] Not exercised by the current Playwright specs; underlying data paths
+      covered by the backend suite (excel_export, simulator, alerts,
+      dividend_report). NOTE: the dividend REPORT math changed this release
+      (BUG-004) and is covered by its own backend regression suite. The
+      Simulator/Rebalancer/Annual-report foreign-currency 1:1 issues are the
+      OPEN ADD-006/ADD-007/ADD-004 audit items — documented, not regressions
+      from this campaign.
+
+SECTION 17 — Privacy and Local-First Hygiene
+
+  [✓] git status clean of __pycache__/, *.pyc, .env, *.db, backend.log
+  [✓] backend.spec, dist/, backend-dist/, build/, release/ all gitignored
+      (verified via git check-ignore during this run)
+  [✓] Backend API on localhost only
+  [✓] No credentials, account numbers, or balances logged in this run
+
+SECTION 18 — Regression Guard (FINAL GATE)
+
+  [✓] pytest backend/tests/ — 0 failures, 0 errors (446 passed)
+  [✓] pytest tests/ — 0 failures (113 passed)
+  [✓] npx tsc --noEmit — 0 TypeScript errors
+  [✓] Wealthsimple regression test green
+  [✓] Questrade regression test green
+  [✓] App launches without crash (packaged build, 4 separate launches this run)
+  [✓] Dashboard loads data correctly
+  [✓] No modal opens squished into the header bar
+  [✓] FX rates non-null on all imported rows
+  [✓] net_cad non-null on all imported rows
+  [✓] ACB engine produces correct result on canonical test fixture
+  [✓] Modified-Dietz returns correct on canonical test fixture
+  [✓] TFSA CAD-only view shows real numbers (not "—")
+  [✓] Named parsers never regress into the generic lane (11/11 fixtures)
+  [✓] Generic import cannot brick the app (/api/portfolio stays 200, verified
+      in the packaged build)
+
+========================================================
+SUMMARY
+
+  All automated tests passed. Build 0.7.0 (post-audit, installer of
+  2026-06-12 19:41) is clean.
+
+  446 backend pytest passed (includes 180 universal-import tests and the
+      8 new BUG-00x regression suites)
+  113 root pytest passed
+  0   TypeScript errors
+  27  Playwright E2E passed against the packaged Electron build
+      (21 master-debug + 3 release-probe + 3 visual-probe)
+  9   Playwright skipped by design (dev-server-only specs)
+
+  One test-HARNESS defect was found and fixed during the run (stale splash-
+  window wait in master-debug-run.spec.ts); it never represented an app
+  failure — the same binary launched cleanly under the other two specs.
+
+  All 8 audit bugs (BUG-001…BUG-008) are fixed, regression-tested, and
+  present in the rebuilt installer. ADD-001…ADD-007 remain open for the
+  next pass.
+
+  MANUAL STEPS PENDING USER VERIFICATION (Section 6b) before merge to main:
+    1. Install/run release/Portfolio Dashboard Setup 0.7.0.exe (or the
+       win-unpacked build).
+    2. Drop a non-named-institution file (or test_data/generic/
+       Messy_Generic_2024.csv) → the mapping editor must open.
+    3. Change one column assignment via its dropdown → Confirm Import →
+       rows appear under "Imported (Generic)" in Transactions.
+    4. Re-import the same file → 0 new rows, no error toast.
+    5. Drop a named-broker file (e.g. a Questrade export) → no editor;
+       straight to the one-shot import toast.
+
+  DO NOT merge to main until the manual Section 6b steps are verified.
+
+========================================================
