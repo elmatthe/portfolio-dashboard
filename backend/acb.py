@@ -378,7 +378,6 @@ def compute(
     total_sloss_cad = 0.0
     for h in holdings.values():
         ccy = h.currency
-        fx = fx_rate_for_date(date.today(), ccy) if ccy != "CAD" else 1.0
         for a in h.superficial_loss_adjustments:
             if a.denied_loss_cad is not None:
                 total_sloss_cad += a.denied_loss_cad
