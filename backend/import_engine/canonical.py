@@ -159,6 +159,14 @@ class MinSchemaRule:
       - `required`     : each field must be present OR derivable.
       - `any_of`       : each inner tuple is a group where >= 1 field must be present.
       - `n_of`         : each (n, fields) group needs >= n of `fields` present.
+      - `requires_if_present` : each (trigger, fields) pair is a CONDITIONAL
+                         requirement — IF `trigger` is present, every field in
+                         `fields` must also be present. Absent trigger == no
+                         requirement. This is how one action can carry two
+                         alternative shapes (BUG-003: a transfer is EITHER cash
+                         [date + net_amount] OR in-kind [date + ticker + quantity]
+                         — the ticker is the evidence that selects the in-kind
+                         contract).
       - `derivable`    : fields the normalizer may compute when absent (logged as
                          an assumption, moving the row to "mapped with assumptions").
       - `recommended`  : nice-to-have; absence never blocks, only annotates.
@@ -171,6 +179,7 @@ class MinSchemaRule:
     required: tuple[CanonicalField, ...] = ()
     any_of: tuple[tuple[CanonicalField, ...], ...] = ()
     n_of: tuple[tuple[int, tuple[CanonicalField, ...]], ...] = ()
+    requires_if_present: tuple[tuple[CanonicalField, tuple[CanonicalField, ...]], ...] = ()
     derivable: tuple[CanonicalField, ...] = ()
     recommended: tuple[CanonicalField, ...] = ()
     review_if_absent: tuple[str, ...] = ()
@@ -253,11 +262,18 @@ MIN_SCHEMA: dict[CanonicalAction, MinSchemaRule] = {
         review_if_absent=("no amount",),
         sign_hints={_F.NET_AMOUNT: "positive"},
     ),
+    # Transfers carry two alternative shapes (BUG-003):
+    #   cash    : date + net_amount             (an ordinary Deposit/Withdrawal)
+    #   in-kind : date + ticker + quantity      (securities moved between firms)
+    # The any_of group demands ONE of the shapes' anchors (net_amount or ticker);
+    # requires_if_present upgrades a row WITH a ticker to the in-kind contract
+    # (quantity becomes mandatory). The old unconditional n_of=(2,(ticker,qty))
+    # made plain cash deposits fail the schema and held them back as PARTIAL.
     _A.TRANSFER_IN: MinSchemaRule(
         _A.TRANSFER_IN,
         required=(_F.TRANSACTION_DATE,),
         any_of=((_F.NET_AMOUNT, _F.TICKER),),
-        n_of=((2, (_F.TICKER, _F.QUANTITY)),),  # security transfer needs both; OR a net_amount via any_of
+        requires_if_present=((_F.TICKER, (_F.QUANTITY,)),),
         derivable=(_F.ACTION,),
         recommended=(_F.ACCOUNT, _F.ACCOUNT_TYPE),
         review_if_absent=("neither security+qty nor amount",),
@@ -266,7 +282,7 @@ MIN_SCHEMA: dict[CanonicalAction, MinSchemaRule] = {
         _A.TRANSFER_OUT,
         required=(_F.TRANSACTION_DATE,),
         any_of=((_F.NET_AMOUNT, _F.TICKER),),
-        n_of=((2, (_F.TICKER, _F.QUANTITY)),),
+        requires_if_present=((_F.TICKER, (_F.QUANTITY,)),),
         derivable=(_F.ACTION,),
         recommended=(_F.ACCOUNT, _F.ACCOUNT_TYPE),
         review_if_absent=("neither security+qty nor amount",),
@@ -339,6 +355,8 @@ def requirement_gaps(mapped: set[CanonicalField], rule: MinSchemaRule) -> list[s
       - a missing `required` field            → that field's value, e.g. "net_amount"
       - an unsatisfied `any_of` group          → "a|b|c" (need at least one of)
       - an unsatisfied `n_of` group            → "2_of:a|b|c" (need at least n of)
+      - an unmet `requires_if_present` clause  → "a_with_b" (a required because b
+        is present), e.g. "quantity_with_ticker"
 
     Used by the column classifier (file-level, against FILE_LEVEL_RULE) and by
     Step 4 (per-row, against the row's action rule). `derivable` fields are NOT
@@ -355,6 +373,11 @@ def requirement_gaps(mapped: set[CanonicalField], rule: MinSchemaRule) -> list[s
     for n, group in rule.n_of:
         if sum(1 for f in group if f in mapped) < n:
             gaps.append(f"{n}_of:" + "|".join(f.value for f in group))
+    for trigger, fields in rule.requires_if_present:
+        if trigger in mapped:
+            for f in fields:
+                if f not in mapped:
+                    gaps.append(f"{f.value}_with_{trigger.value}")
     return gaps
 
 
