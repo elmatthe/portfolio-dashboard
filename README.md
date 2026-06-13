@@ -356,11 +356,12 @@ First run takes 3–5 minutes; subsequent runs are faster.
 
 ## Roadmap
 
-- **0.6.0** — Currency-exposure widget on the dashboard, Linear-style
-  per-currency breakdown panel.
-- **0.7.0** — Options (calls / puts / spreads) and broker-API integrations
-  (Questrade has one, Wealthsimple doesn't).
+Shipped versions (0.6.0 transactions page + manual entry, 0.7.0 universal
+import) are recorded in [`md-instructions/CHANGELOG.md`](md-instructions/CHANGELOG.md).
+
 - **0.8.0** — Background daily price refresh, push-style price alerts.
+- **0.9.0** — Options (calls / puts / spreads) and broker-API integrations
+  (Questrade has one, Wealthsimple doesn't).
 - **1.0.0** — Code-signed Windows + Mac installers, App Store / Microsoft
   Store distribution.
 
