@@ -16,6 +16,40 @@ column-mapping engine, and when confidence is low the user gets an editable
 mapping editor to confirm or correct the column map before a single row is
 written. The 11 named parsers are untouched and produce identical output.
 
+### Bug Fixes
+
+Eight defects found by an independent post-release audit of 0.7.0, fixed in
+one commit each on the release branch:
+
+- **BUG-001** (`4d15726`) — multi-currency aggregation: all 10 currencies are
+  now converted to CAD-equivalent via stored `net_cad` (new `*_other_cad`
+  buckets); previously the 8 non-CAD/non-USD currencies were summed into the
+  CAD bucket at 1:1.
+- **BUG-002** (`fab5726`) — CRA ACB: a parallel CAD cost-basis ledger tracks
+  ACB at acquisition-date FX and proceeds at disposition-date FX, so
+  `total_gain_cad` is CRA-correct instead of native-gain × one rate.
+- **BUG-003** (`764bc7b`) — generic import: cash deposits/withdrawals now
+  persist (conditional transfer schema — `requires_if_present` — no longer
+  demands trade fields on cash rows).
+- **BUG-004** (`2cc9451`) — dividend report: every currency converts at
+  transaction-date FX (stored `net_cad`); yield-on-cost uses CAD cost basis.
+- **BUG-005** (`226aa44`) — manual edit: editing a manual transaction
+  recomputes gross/net/FX/`net_cad` through the same compute path as create;
+  the SHA-256 hash is documented immutable (row identity never changes on
+  edit).
+- **BUG-006** (`de10414`) — multi-account display: holding equity is
+  attributed to its owning `account_number` instead of collapsing onto one
+  same-type account; CRA tax pooling by `(ticker, account_type)` is unchanged.
+- **BUG-007** (`cefdbc3`) — removed an unused today-FX lookup in the ACB
+  superficial-loss totals pass that crashed strict date-keyed FX callables.
+- **BUG-008** (`64363cc`) — README current-version banner updated to 0.7.0
+  (and its dead legacy-folder CHANGELOG link fixed).
+
+The same audit's secondary findings ADD-001…ADD-007 (Excel export, holding
+weight %, attribution, annual report, period dividends, simulator, and
+rebalancer still treating foreign amounts as CAD 1:1 in places) remain open
+for the next pass.
+
 ### Added
 
 - **Universal import pipeline** (`backend/import_engine/`) — built across eight
