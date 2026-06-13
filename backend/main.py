@@ -528,15 +528,9 @@ def create_manual_transaction(body: ManualTransactionRequest):
 
     ticker = body.ticker.strip().upper() if body.ticker else None
 
-    if action == "BUY":
-        gross = body.quantity * body.price
-        net = -(gross + body.commission)
-    elif action == "SELL":
-        gross = body.quantity * body.price
-        net = gross - body.commission
-    else:
-        net = body.net_amount if body.net_amount is not None else 0.0
-        gross = abs(net)
+    gross, net = store.derive_manual_amounts(
+        action, body.quantity, body.price, body.commission, body.net_amount
+    )
 
     account_number = body.account_number or f"manual-{body.account_type.lower()}"
     h = compute_hash(
@@ -605,7 +599,13 @@ def create_manual_transaction(body: ManualTransactionRequest):
 
 @app.put("/api/transactions/manual/{tx_hash}")
 def update_manual_tx(tx_hash: str, body: ManualTransactionRequest):
-    """Update a manual transaction by hash."""
+    """Update a manual transaction by hash.
+
+    Only raw inputs are forwarded; gross_amount / net_amount (for BUY/SELL) /
+    fx_rate_to_cad / net_cad are recomputed by the store layer from the
+    post-edit row (BUG-005). The hash is the row's immutable identity — see
+    store.update_manual_transaction for the exact semantics.
+    """
     updates: dict = {}
     if body.transaction_date:
         updates["transaction_date"] = body.transaction_date
@@ -634,6 +634,10 @@ def update_manual_tx(tx_hash: str, body: ManualTransactionRequest):
         updates["notes"] = body.notes
     if body.description is not None:
         updates["description"] = body.description
+    if body.net_amount is not None:
+        # Input for cash-style actions (DEPOSIT/WITHDRAWAL/DIVIDEND/...);
+        # for BUY/SELL the store recomputes net from quantity × price ∓ commission.
+        updates["net_amount"] = body.net_amount
 
     try:
         result = store.update_manual_transaction(tx_hash, updates)

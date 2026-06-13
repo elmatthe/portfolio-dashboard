@@ -464,6 +464,32 @@ def save_settings(s: AppSettings) -> None:
 
 # ---------- manual entry CRUD ----------
 
+def derive_manual_amounts(
+    action: str,
+    quantity: float,
+    price: float,
+    commission: float,
+    net_amount: float | None,
+) -> tuple[float, float]:
+    """Single compute path for a manual transaction's derived money fields.
+
+    Returns (gross_amount, net_amount). BUY/SELL derive both from
+    quantity × price ∓ commission; every other action (DEPOSIT, WITHDRAWAL,
+    DIVIDEND, TRANSFER, FEE) takes net_amount as entered. Shared by the
+    create endpoint and update_manual_transaction so an edit can never leave
+    amounts that disagree with the row's raw inputs (BUG-005).
+    """
+    act = (action or "").upper()
+    if act == "BUY":
+        gross = quantity * price
+        return gross, -(gross + commission)
+    if act == "SELL":
+        gross = quantity * price
+        return gross, gross - commission
+    net = net_amount if net_amount is not None else 0.0
+    return abs(net), net
+
+
 def insert_manual_transaction(tx: Transaction) -> Transaction:
     """Insert a manual transaction via the shared dedup pipeline.
 
@@ -500,7 +526,25 @@ def insert_manual_transaction(tx: Transaction) -> Transaction:
 
 
 def update_manual_transaction(tx_hash: str, updates: dict) -> Transaction:
-    """Update a manual transaction. Raises ValueError if not manual."""
+    """Update a manual transaction. Raises ValueError if not manual.
+
+    Derived money fields (gross_amount, net_amount, fx_rate_to_cad, net_cad)
+    are recomputed from the merged post-edit row on EVERY update, through the
+    same derive_manual_amounts() path the create endpoint uses, so an edit to
+    action / quantity / price / commission / currency / transaction_date can
+    never leave stale amounts behind (BUG-005). Caller-supplied values for
+    gross_amount are ignored; net_amount is an input only for non-BUY/SELL
+    actions.
+
+    Hash semantics: the SHA-256 `hash` is the row's immutable identity. It is
+    computed once at creation and deliberately NOT recomputed on edit, even
+    when fields that feed compute_hash() (date, action, symbol, quantity,
+    net_amount, account_number) change — the frontend addresses the row by
+    hash and this function updates in place by hash, so recomputing would
+    orphan that reference mid-edit. Consequence: an edited row keeps its
+    original dedup identity; a later import whose row matches the edited
+    field values will insert as a new row rather than dedup against it.
+    """
     from backend.fx import get_fx_service
 
     engine = db.get_engine()
@@ -516,14 +560,47 @@ def update_manual_transaction(tx_hash: str, updates: dict) -> Transaction:
     allowed_fields = {
         "transaction_date", "settlement_date", "action", "raw_symbol",
         "resolved_ticker", "description", "quantity", "price",
-        "gross_amount", "commission", "net_amount", "currency",
+        "commission", "net_amount", "currency",
         "account_type", "account_number", "isin", "notes",
     }
     set_vals = {k: v for k, v in updates.items() if k in allowed_fields}
-    if "transaction_date" in set_vals and isinstance(set_vals["transaction_date"], str):
-        pass
-    if "settlement_date" in set_vals and set_vals["settlement_date"] is not None:
-        pass
+    # Dates are stored as ISO strings (the transactions columns are String);
+    # normalize through _parse_date so a malformed date fails loudly here
+    # instead of poisoning the row.
+    for date_field in ("transaction_date", "settlement_date"):
+        if set_vals.get(date_field) is not None:
+            parsed = _parse_date(set_vals[date_field])
+            if parsed is None:
+                raise ValueError(f"Unparseable {date_field}: {set_vals[date_field]!r}")
+            set_vals[date_field] = parsed.isoformat()
+
+    # Recompute the derived amounts from the post-edit state (existing row
+    # overlaid with the incoming changes) — the create path's compute,
+    # re-applied on every update.
+    merged: dict = dict(row)
+    merged.update(set_vals)
+    gross, net = derive_manual_amounts(
+        action=merged["action"],
+        quantity=merged.get("quantity") or 0.0,
+        price=merged.get("price") or 0.0,
+        commission=merged.get("commission") or 0.0,
+        net_amount=merged.get("net_amount"),
+    )
+    set_vals["gross_amount"] = gross
+    set_vals["net_amount"] = net
+
+    # Force-recompute the FX leg at the post-edit currency + transaction date.
+    # FXService.populate_transaction() is fill-if-missing by design (imports
+    # must keep broker-provided rates), so the edit path computes the rate
+    # explicitly — otherwise a currency or date change keeps the old rate and
+    # the old net_cad (BUG-005).
+    tx_date = _parse_date(merged["transaction_date"])
+    if tx_date is None:
+        raise ValueError(f"Unparseable transaction_date: {merged['transaction_date']!r}")
+    fx = get_fx_service()
+    rate = fx.rate_to_cad(merged.get("currency") or "CAD", tx_date)
+    set_vals["fx_rate_to_cad"] = rate
+    set_vals["net_cad"] = round(net * rate, 2)
 
     with engine.begin() as conn:
         conn.execute(
@@ -537,21 +614,7 @@ def update_manual_transaction(tx_hash: str, updates: dict) -> Transaction:
             select(db.transactions).where(db.transactions.c.hash == tx_hash)
         ).mappings().first()
 
-    tx = _row_to_transaction(updated_row)
-    fx = get_fx_service()
-    fx.populate_transaction(tx)
-
-    with engine.begin() as conn:
-        conn.execute(
-            update(db.transactions)
-            .where(db.transactions.c.hash == tx_hash)
-            .values(
-                fx_rate_to_cad=tx.fx_rate_to_cad,
-                net_cad=tx.net_cad,
-            )
-        )
-
-    return tx
+    return _row_to_transaction(updated_row)
 
 
 def delete_manual_transaction(tx_hash: str) -> None:
