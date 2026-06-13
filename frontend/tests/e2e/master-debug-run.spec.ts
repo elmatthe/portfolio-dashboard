@@ -24,9 +24,22 @@ test.beforeAll(async () => {
     args: [],
     env: { ...process.env },
   });
-  page = await app.firstWindow();
+  // The first window is the splash (a data: URL); the main process destroys it
+  // once the React renderer is ready. Waiting on it races its destruction, so
+  // wait for the real main window instead — same pattern as release-probe.
+  await app.firstWindow();
+  const deadline = Date.now() + 40_000;
+  while (Date.now() < deadline) {
+    const main = app.windows().find((w) => !w.url().startsWith('data:'));
+    if (main) {
+      page = main;
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  if (!page) throw new Error('Main window never appeared — app may have crashed on launch');
   await page.waitForLoadState('domcontentloaded');
-  // Wait for backend to become healthy (splash shows for 1-3s typically)
+  // Give the backend a moment to become healthy after the renderer appears.
   await page.waitForTimeout(8000);
 });
 
